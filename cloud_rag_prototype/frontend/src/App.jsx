@@ -16,10 +16,12 @@ function App() {
     
     try {
       // Connect to the new Cloud RAG Backend (Port 8001 to avoid conflict with the old app)
-      const response = await fetch('http://localhost:8001/query', {
+      const response = await fetch('https://medical-ai-backend.vercel.app/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: query }),
       });
       
       const data = await response.json();
