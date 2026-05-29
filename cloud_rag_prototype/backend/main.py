@@ -5,9 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from supabase.client import Client, create_client
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import SupabaseVectorStore
 
 load_dotenv()
 
@@ -26,25 +26,33 @@ DB_DIR = "./chroma_db"
 class QueryRequest(BaseModel):
     query: str
 
-def get_api_key():
+def get_env_vars():
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable not set")
-    return api_key
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+    
+    if not all([api_key, supabase_url, supabase_key]):
+        raise ValueError("Missing API Keys. Please check .env")
+        
+    return api_key, supabase_url, supabase_key
 
 @app.post("/query")
 def query_knowledge_base(request: QueryRequest):
     try:
-        api_key = get_api_key()
-        
-        if not os.path.exists(DB_DIR):
-            raise HTTPException(status_code=400, detail="Database is empty. Please run the ingestion script first.")
+        api_key, supabase_url, supabase_key = get_env_vars()
             
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectorstore = Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
+        supabase: Client = create_client(supabase_url, supabase_key)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
         
-        # Retrieve documents across all books
-        docs = vectorstore.similarity_search(request.query, k=2000)
+        vectorstore = SupabaseVectorStore(
+            client=supabase,
+            embedding=embeddings,
+            table_name="documents",
+            query_name="match_documents"
+        )
+        
+        # Retrieve documents across all books from Cloud DB
+        docs = vectorstore.similarity_search(request.query, k=15)
         
         if not docs:
             return {"summary": "No relevant information found in the database."}

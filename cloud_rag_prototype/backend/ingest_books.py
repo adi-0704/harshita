@@ -4,18 +4,21 @@ import time
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from supabase.client import Client, create_client
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import SupabaseVectorStore
 
 load_dotenv()
 
-DB_DIR = "./chroma_db"
-
-def get_api_key():
+def get_env_vars():
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable not set")
-    return api_key
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+    
+    if not all([api_key, supabase_url, supabase_key]):
+        raise ValueError("Missing GEMINI_API_KEY, SUPABASE_URL, or SUPABASE_SERVICE_KEY in .env")
+        
+    return api_key, supabase_url, supabase_key
 
 def ingest_pdf(pdf_path: str):
     print(f"Starting ingestion for: {pdf_path}")
@@ -33,15 +36,24 @@ def ingest_pdf(pdf_path: str):
     splits = text_splitter.split_documents(docs)
     
     total_chunks = len(splits)
-    print(f"Created {total_chunks} chunks. Connecting to Chroma Database...")
     
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    api_key, supabase_url, supabase_key = get_env_vars()
     
-    # Initialize/connect to persistent ChromaDB
-    vectorstore = Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
+    print(f"Created {total_chunks} chunks. Connecting to Supabase Cloud Database...")
     
-    batch_size = 10
-    delay_seconds = 4
+    supabase: Client = create_client(supabase_url, supabase_key)
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
+    
+    # Connect to Supabase Vector Store
+    vectorstore = SupabaseVectorStore(
+        client=supabase,
+        embedding=embeddings,
+        table_name="documents",
+        query_name="match_documents"
+    )
+    
+    batch_size = 50
+    delay_seconds = 2
     
     print(f"Pushing chunks to Database (Batch size: {batch_size}, Delay: {delay_seconds}s)")
     
