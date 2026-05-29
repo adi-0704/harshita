@@ -1,0 +1,6 @@
+venv/
+venv_cloud/
+node_modules/
+.env
+db/
+__pycache__/
