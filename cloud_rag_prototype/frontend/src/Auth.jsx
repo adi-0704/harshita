@@ -355,7 +355,8 @@ export default function Auth() {
               </ul>
             </div>
           </div>
-        </footer>
+        </div>
+      </footer>
 
       {/* Auth Modal Overlay */}
       {showModal && (
