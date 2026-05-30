@@ -15,6 +15,10 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   
+  const [sessions, setSessions] = useState([])
+  const [currentSessionId, setCurrentSessionId] = useState(null)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  
   const [savedNotes, setSavedNotes] = useState(() => {
     const saved = localStorage.getItem('mbbs_saved_notes')
     return saved ? JSON.parse(saved) : []
@@ -76,13 +80,37 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Fetch sessions on mount
   useEffect(() => {
     if (session) {
+      const fetchSessions = async () => {
+        const { data, error } = await supabase
+          .from('chat_sessions')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          setSessions(data);
+          if (data.length > 0 && !currentSessionId) {
+            setCurrentSessionId(data[0].id);
+          }
+        }
+      }
+      fetchSessions();
+    } else {
+      setSessions([]);
+      setCurrentSessionId(null);
+    }
+  }, [session])
+
+  // Fetch history when currentSessionId changes
+  useEffect(() => {
+    if (session && currentSessionId) {
       const fetchHistory = async () => {
         const { data, error } = await supabase
           .from('chat_history')
           .select('*')
-          .eq('user_id', session.user.id)
+          .eq('session_id', currentSessionId)
           .order('created_at', { ascending: true });
         
         if (!error && data) {
@@ -100,7 +128,13 @@ function App() {
     } else {
       setMessages([])
     }
-  }, [session])
+  }, [session, currentSessionId])
+
+  const startNewChat = () => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    setIsSidebarOpen(false);
+  }
 
   useEffect(() => {
     localStorage.setItem('mbbs_saved_notes', JSON.stringify(savedNotes))
@@ -125,9 +159,26 @@ function App() {
     setLoading(true)
     setError(null)
 
-    if (session) {
+    let activeSessionId = currentSessionId;
+    if (!activeSessionId && session) {
+      const title = query.split(' ').slice(0, 4).join(' ') + (query.split(' ').length > 4 ? '...' : '');
+      const { data, error } = await supabase
+        .from('chat_sessions')
+        .insert({ user_id: session.user.id, title })
+        .select()
+        .single();
+      
+      if (data) {
+        activeSessionId = data.id;
+        setCurrentSessionId(data.id);
+        setSessions(prev => [data, ...prev]);
+      }
+    }
+
+    if (session && activeSessionId) {
       supabase.from('chat_history').insert({
         user_id: session.user.id,
+        session_id: activeSessionId,
         role: 'user',
         content: userMsg.content,
         sources: null
@@ -158,9 +209,10 @@ function App() {
       }
       setMessages(prev => [...prev, aiMsg])
 
-      if (session) {
+      if (session && activeSessionId) {
         supabase.from('chat_history').insert({
           user_id: session.user.id,
+          session_id: activeSessionId,
           role: 'ai',
           content: aiMsg.content,
           sources: aiMsg.sources
@@ -264,53 +316,95 @@ function App() {
   const currentQuestion = mcqModal ? mcqModal[currentQuestionIndex] : null
 
   return (
-    <div className="h-screen bg-gray-50 dark:bg-[#212121] text-gray-900 dark:text-[#ececec] flex flex-col selection:bg-blue-500/20 dark:selection:bg-white/20 font-sans overflow-hidden transition-colors duration-300">
+    <div className="h-screen bg-white dark:bg-black text-gray-900 dark:text-[#ececec] font-sans selection:bg-blue-500/30 dark:selection:bg-white/20 transition-colors duration-300 flex overflow-hidden">
       
-      {/* Navbar */}
-      <header className="bg-white dark:bg-[#171717] px-4 sm:px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-200 dark:border-white/5 transition-colors duration-300">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-black dark:bg-white flex items-center justify-center text-white dark:text-black font-bold text-sm">M</div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white hidden sm:block">MedAI RAG</h1>
-        </div>
-        <div className="flex gap-2 sm:gap-4 items-center">
-          
-          <button 
-            onClick={() => setIsDarkMode(!isDarkMode)} 
-            className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors mr-2"
-            title="Toggle Theme"
-          >
-            {isDarkMode ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-            )}
-          </button>
+      {/* Sidebar Overlay for Mobile */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)}></div>
+      )}
 
-          {/* Cumulative Score Badge */}
-          <div className="bg-purple-100 dark:bg-gradient-to-r dark:from-purple-500/20 dark:to-blue-500/20 border border-purple-200 dark:border-purple-500/30 px-3 py-1.5 rounded-full flex items-center gap-2">
-            <span className="text-xs text-purple-700 dark:text-gray-400 font-medium">Overall Score:</span>
-            <span className="text-sm font-bold text-purple-900 dark:text-white">{totalCorrect} / {totalQuestions}</span>
+      {/* ChatGPT Sidebar */}
+      <aside className={`fixed md:relative z-50 w-64 h-full bg-gray-50 dark:bg-[#171717] border-r border-gray-200 dark:border-white/10 flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="p-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-black dark:bg-white flex items-center justify-center text-white dark:text-black font-bold text-sm">M</div>
+            <span className="font-semibold text-lg tracking-tight">MedAI RAG</span>
           </div>
-
-          <button 
-            onClick={() => setShowSavedSidebar(!showSavedSidebar)}
-            className="flex items-center gap-2 bg-gray-100 dark:bg-[#2f2f2f] hover:bg-gray-200 dark:hover:bg-[#3f3f3f] px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors text-black dark:text-white"
-          >
-            <svg className="w-4 h-4 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-            Notes ({savedNotes.length})
-          </button>
-          
-          <button 
-            onClick={() => supabase.auth.signOut()}
-            className="text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm font-medium transition-colors hidden sm:block"
-          >
-            Log Out
+          <button className="md:hidden p-2 text-gray-500 hover:text-black dark:hover:text-white" onClick={() => setIsSidebarOpen(false)}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
           </button>
         </div>
-      </header>
+        
+        <div className="px-3 pb-3 shrink-0">
+          <button onClick={startNewChat} className="w-full flex items-center gap-3 bg-white dark:bg-[#212121] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border border-gray-200 dark:border-white/10 px-4 py-3 rounded-xl text-sm font-medium transition-colors text-black dark:text-white shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+            New Chat
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+          <div className="text-xs font-semibold text-gray-400 dark:text-gray-500 mb-3 px-2 uppercase tracking-wider">Recent Chats</div>
+          {sessions.map(s => (
+            <button 
+              key={s.id} 
+              onClick={() => { setCurrentSessionId(s.id); setIsSidebarOpen(false); }}
+              className={`w-full text-left truncate px-3 py-2.5 rounded-lg text-sm transition-colors ${currentSessionId === s.id ? 'bg-gray-200 dark:bg-[#2a2a2a] font-medium text-black dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#212121] hover:text-black dark:hover:text-white'}`}
+            >
+              {s.title}
+            </button>
+          ))}
+        </div>
+        
+        {/* User Actions Bottom */}
+        <div className="p-3 border-t border-gray-200 dark:border-white/10 space-y-1 shrink-0">
+           <button 
+             onClick={() => setIsDarkMode(!isDarkMode)} 
+             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#212121] rounded-lg transition-colors"
+           >
+             {isDarkMode ? (
+               <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg> Light Mode</>
+             ) : (
+               <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg> Dark Mode</>
+             )}
+           </button>
+           <button 
+             onClick={() => supabase.auth.signOut()}
+             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+           >
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg> Log Out
+           </button>
+        </div>
+      </aside>
 
-      {/* Main Chat Area */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto pb-32">
+      {/* Main Chat Container */}
+      <div className="flex-1 flex flex-col h-screen relative w-full overflow-hidden">
+        
+        {/* Header bar (Mobile hamburger + Score/Notes) */}
+        <header className="absolute top-0 w-full bg-white/90 dark:bg-black/80 backdrop-blur-md z-30 border-b border-gray-200 dark:border-white/10 px-4 py-3 flex justify-between items-center transition-all duration-300">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-gray-500 hover:text-black dark:hover:text-white">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <span className="font-medium truncate max-w-[200px] text-black dark:text-white md:hidden">
+               {currentSessionId ? sessions.find(s => s.id === currentSessionId)?.title : 'New Chat'}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2 sm:gap-4 ml-auto">
+            <div className="hidden sm:flex items-center bg-gray-100 dark:bg-[#171717] rounded-full px-4 py-1.5 border border-gray-200 dark:border-white/5 mr-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-widest font-semibold mr-2">Score:</span>
+              <span className="text-sm font-bold text-black dark:text-white">{totalCorrect} <span className="text-gray-400">/ {totalQuestions}</span></span>
+            </div>
+
+            <button onClick={() => setShowSavedSidebar(true)} className="flex items-center gap-2 text-sm font-medium hover:text-black dark:hover:text-white transition-colors text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 px-3 py-1.5 rounded-lg">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+              Notes ({savedNotes.length})
+            </button>
+          </div>
+        </header>
+
+        {/* Main Chat Area */}
+        <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto pb-32 pt-16">
         
         {messages.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-80 mt-20">
@@ -575,6 +669,7 @@ function App() {
           </div>
         </>
       )}
+      </div>
     </div>
   )
 }
