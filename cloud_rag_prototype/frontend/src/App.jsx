@@ -17,6 +17,7 @@ function App() {
     return saved ? JSON.parse(saved) : []
   })
   const [showSavedSidebar, setShowSavedSidebar] = useState(false)
+  const [expandedNoteId, setExpandedNoteId] = useState(null)
   
   const [mcqModal, setMcqModal] = useState(null)
   const [mcqLoading, setMcqLoading] = useState(false)
@@ -343,11 +344,18 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="p-4 max-h-48 overflow-hidden relative">
+                    <div 
+                      className={`p-4 relative cursor-pointer transition-all ${expandedNoteId === note.id ? '' : 'max-h-48 overflow-hidden'}`}
+                      onClick={() => setExpandedNoteId(expandedNoteId === note.id ? null : note.id)}
+                    >
                       <div className="prose prose-sm prose-invert prose-teal">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.content}</ReactMarkdown>
                       </div>
-                      <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-slate-800 to-transparent"></div>
+                      {expandedNoteId !== note.id && (
+                        <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-slate-800 to-transparent flex items-end justify-center pb-1">
+                          <span className="text-xs text-teal-400 font-medium">Click to expand</span>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="bg-slate-900/50 p-3 border-t border-slate-700 flex justify-between items-center gap-2">
