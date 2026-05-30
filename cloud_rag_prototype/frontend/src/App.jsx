@@ -99,16 +99,23 @@ function App() {
     html2pdf().set(opt).from(element).save();
   }
 
-  const generateMCQ = async (context_summary) => {
+  const generateMCQ = async (aiMsgId, aiMsgContent) => {
     setMcqLoading(true)
     setMcqModal(null)
     setSelectedOption(null)
+    
+    // Find the user's original query right before this AI message to use as the search topic
+    const aiIdx = messages.findIndex(m => m.id === aiMsgId);
+    let topicQuery = "Medical high-yield concepts";
+    if (aiIdx > 0 && messages[aiIdx - 1].role === 'user') {
+      topicQuery = messages[aiIdx - 1].content;
+    }
     
     try {
       const response = await fetch(`${API_BASE}/generate_mcq`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: "Generate a question based on this.", context_summary }),
+        body: JSON.stringify({ query: topicQuery, context_summary: aiMsgContent.substring(0, 1000) }),
       });
       const data = await response.json();
       setMcqModal(data)
@@ -170,7 +177,7 @@ function App() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
                     Save Note
                   </button>
-                  <button onClick={() => generateMCQ(msg.content.substring(0, 500))} className="flex items-center gap-2 text-sm text-slate-400 hover:text-purple-400 transition-colors bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                  <button onClick={() => generateMCQ(msg.id, msg.content)} className="flex items-center gap-2 text-sm text-slate-400 hover:text-purple-400 transition-colors bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     Test Me (MCQ)
                   </button>
