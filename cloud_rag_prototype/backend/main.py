@@ -157,10 +157,10 @@ def generate_mcq(request: MCQRequest):
             
             llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
             
-            prompt = f"""You are a medical examiner. Generate ONE multiple-choice question (MCQ) based on the following context.
-The question should test high-yield concepts. Provide exactly 4 options. 
-You MUST return your answer as a raw JSON object with the following exact keys: "question" (string), "options" (array of 4 strings), "correct_index" (integer 0-3), and "explanation" (string).
-Do NOT wrap the JSON in markdown code blocks. Just output the raw JSON object.
+            prompt = f"""You are a medical examiner. Generate exactly 5 multiple-choice questions (MCQs) based strictly on the following context.
+The questions should test high-yield concepts from the provided topic. Provide exactly 4 options for each question. 
+You MUST return your answer as a raw JSON array of 5 objects. Each object must have the following exact keys: "question" (string), "options" (array of 4 strings), "correct_index" (integer 0-3), and "explanation" (string).
+Do NOT wrap the JSON in markdown code blocks. Just output the raw JSON array.
 
 Topic: {request.query}
 Additional context summary: {request.context_summary}
@@ -180,6 +180,13 @@ Context:
             raw_text = raw_text.strip()
             
             parsed = json.loads(raw_text)
+            
+            # Ensure it's a list
+            if isinstance(parsed, dict) and "questions" in parsed:
+                parsed = parsed["questions"]
+            elif isinstance(parsed, dict):
+                parsed = [parsed]
+                
             return parsed
             
         except Exception as e:

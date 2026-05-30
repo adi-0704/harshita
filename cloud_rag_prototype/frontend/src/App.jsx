@@ -22,9 +22,21 @@ function App() {
   const [showSavedSidebar, setShowSavedSidebar] = useState(false)
   const [expandedNoteId, setExpandedNoteId] = useState(null)
   
-  const [mcqModal, setMcqModal] = useState(null)
+  // Quiz State
+  const [mcqModal, setMcqModal] = useState(null) // Array of questions
   const [mcqLoading, setMcqLoading] = useState(false)
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [selectedOption, setSelectedOption] = useState(null)
+  const [quizScore, setQuizScore] = useState(0)
+  const [quizFinished, setQuizFinished] = useState(false)
+  
+  // Cumulative Score
+  const [totalCorrect, setTotalCorrect] = useState(() => {
+    return parseInt(localStorage.getItem('mbbs_total_correct')) || 0
+  })
+  const [totalQuestions, setTotalQuestions] = useState(() => {
+    return parseInt(localStorage.getItem('mbbs_total_questions')) || 0
+  })
   
   const chatEndRef = useRef(null)
 
@@ -71,6 +83,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem('mbbs_saved_notes', JSON.stringify(savedNotes))
   }, [savedNotes])
+
+  useEffect(() => {
+    localStorage.setItem('mbbs_total_correct', totalCorrect)
+    localStorage.setItem('mbbs_total_questions', totalQuestions)
+  }, [totalCorrect, totalQuestions])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -161,10 +178,13 @@ function App() {
     html2pdf().set(opt).from(element).save();
   }
 
-  const generateMCQ = async (aiMsgId, aiMsgContent) => {
+  const startQuiz = async (aiMsgId, aiMsgContent) => {
     setMcqLoading(true)
     setMcqModal(null)
+    setCurrentQuestionIndex(0)
     setSelectedOption(null)
+    setQuizScore(0)
+    setQuizFinished(false)
     
     const aiIdx = messages.findIndex(m => m.id === aiMsgId);
     let topicQuery = "Medical high-yield concepts";
@@ -178,7 +198,10 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: topicQuery, context_summary: aiMsgContent.substring(0, 1000) }),
       });
-      const data = await response.json();
+      const data = await response.json(); // Array of 5 questions
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("Invalid format received from server.")
+      }
       setMcqModal(data)
     } catch (err) {
       alert("Failed to generate MCQ: " + err.message)
@@ -187,32 +210,67 @@ function App() {
     }
   }
 
+  const handleOptionSelect = (idx, isCorrect) => {
+    setSelectedOption(idx)
+    if (isCorrect) {
+      setQuizScore(prev => prev + 1)
+      setTotalCorrect(prev => prev + 1)
+    }
+    setTotalQuestions(prev => prev + 1)
+  }
+
+  const nextQuestion = () => {
+    if (currentQuestionIndex < mcqModal.length - 1) {
+      setCurrentQuestionIndex(prev => prev + 1)
+      setSelectedOption(null)
+    } else {
+      setQuizFinished(true)
+    }
+  }
+
+  const closeQuiz = () => {
+    setMcqModal(null)
+    setQuizFinished(false)
+    setCurrentQuestionIndex(0)
+    setSelectedOption(null)
+  }
+
   if (!session) {
     return <Auth />
   }
+
+  const currentQuestion = mcqModal ? mcqModal[currentQuestionIndex] : null
 
   return (
     <div className="h-screen bg-[#212121] text-[#ececec] flex flex-col selection:bg-white/20 font-sans overflow-hidden">
       
       {/* Navbar */}
-      <header className="bg-[#171717] px-4 sm:px-6 py-4 flex justify-between items-center shrink-0">
+      <header className="bg-[#171717] px-4 sm:px-6 py-4 flex justify-between items-center shrink-0 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-black font-bold text-sm">M</div>
-          <h1 className="text-xl font-semibold tracking-tight text-white">MedAI RAG</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-white hidden sm:block">MedAI RAG</h1>
         </div>
-        <div className="flex gap-4 items-center">
-          <button 
-            onClick={() => supabase.auth.signOut()}
-            className="text-gray-400 hover:text-white text-sm font-medium transition-colors"
-          >
-            Log Out
-          </button>
+        <div className="flex gap-3 sm:gap-4 items-center">
+          
+          {/* Cumulative Score Badge */}
+          <div className="bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30 px-3 py-1.5 rounded-full flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">Overall Score:</span>
+            <span className="text-sm font-bold text-white">{totalCorrect} / {totalQuestions}</span>
+          </div>
+
           <button 
             onClick={() => setShowSavedSidebar(!showSavedSidebar)}
-            className="flex items-center gap-2 bg-[#2f2f2f] hover:bg-[#3f3f3f] px-4 py-2 rounded-full text-sm font-medium transition-colors text-white"
+            className="flex items-center gap-2 bg-[#2f2f2f] hover:bg-[#3f3f3f] px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors text-white"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-            Saved Notes ({savedNotes.length})
+            <svg className="w-4 h-4 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+            Notes ({savedNotes.length})
+          </button>
+          
+          <button 
+            onClick={() => supabase.auth.signOut()}
+            className="text-gray-400 hover:text-white text-sm font-medium transition-colors hidden sm:block"
+          >
+            Log Out
           </button>
         </div>
       </header>
@@ -250,9 +308,9 @@ function App() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
                       Save Note
                     </button>
-                    <button onClick={() => generateMCQ(msg.id, msg.content)} className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors bg-transparent hover:bg-white/10 px-3 py-1.5 rounded-lg">
+                    <button onClick={() => startQuiz(msg.id, msg.content)} className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors bg-transparent hover:bg-white/10 px-3 py-1.5 rounded-lg">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                      Test Me (MCQ)
+                      Test Me (5-Q Quiz)
                     </button>
                     {msg.sources && msg.sources.length > 0 && (
                       <button onClick={() => toggleSources(msg.id)} className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors bg-transparent hover:bg-white/10 px-3 py-1.5 rounded-lg">
@@ -334,33 +392,40 @@ function App() {
         </div>
       </div>
 
-      {/* MCQ Modal Overlay */}
+      {/* MCQ Multi-Question Quiz Modal */}
       {(mcqLoading || mcqModal) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !mcqLoading && setMcqModal(null)}></div>
-          <div className="relative bg-[#212121] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !mcqLoading && closeQuiz()}></div>
+          <div className="relative bg-[#212121] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
             {mcqLoading ? (
               <div className="p-16 flex flex-col items-center justify-center text-center gap-4 text-white">
-                <svg className="animate-spin h-8 w-8 text-gray-400" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <p className="font-medium text-gray-400">Generating Question...</p>
+                <svg className="animate-spin h-8 w-8 text-purple-400" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <p className="font-medium text-gray-300">Generating 5-Question Quiz...</p>
               </div>
-            ) : mcqModal && (
+            ) : mcqModal && !quizFinished ? (
               <>
-                <div className="bg-[#171717] px-6 py-4 flex justify-between items-center border-b border-white/5">
-                  <h3 className="font-medium text-lg text-white">Knowledge Check</h3>
-                  <button onClick={() => setMcqModal(null)} className="text-gray-500 hover:text-white transition-colors">
+                <div className="bg-[#171717] px-6 py-4 flex justify-between items-center border-b border-white/5 shrink-0">
+                  <div className="flex items-center gap-4">
+                    <h3 className="font-medium text-lg text-white">Knowledge Check</h3>
+                    <span className="bg-purple-500/20 text-purple-300 text-xs px-2.5 py-1 rounded-full border border-purple-500/30">
+                      Question {currentQuestionIndex + 1} of {mcqModal.length}
+                    </span>
+                  </div>
+                  <button onClick={closeQuiz} className="text-gray-500 hover:text-white transition-colors">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </button>
                 </div>
-                <div className="p-6 md:p-8">
-                  <p className="text-lg font-medium mb-8 text-white leading-relaxed">{mcqModal.question}</p>
+                
+                <div className="p-6 md:p-8 overflow-y-auto">
+                  <p className="text-lg font-medium mb-8 text-white leading-relaxed">{currentQuestion.question}</p>
+                  
                   <div className="space-y-3">
-                    {mcqModal.options.map((opt, idx) => {
+                    {currentQuestion.options.map((opt, idx) => {
                       let btnClass = "w-full text-left p-4 rounded-xl border transition-all text-[15px] "
                       if (selectedOption === null) {
                         btnClass += "border-white/10 bg-[#2f2f2f] hover:bg-[#3f3f3f]"
                       } else {
-                        if (idx === mcqModal.correct_index) {
+                        if (idx === currentQuestion.correct_index) {
                           btnClass += "border-green-500/50 bg-green-500/10 text-green-400"
                         } else if (idx === selectedOption) {
                           btnClass += "border-red-500/50 bg-red-500/10 text-red-400"
@@ -369,7 +434,7 @@ function App() {
                         }
                       }
                       return (
-                        <button key={idx} onClick={() => setSelectedOption(idx)} disabled={selectedOption !== null} className={btnClass}>
+                        <button key={idx} onClick={() => handleOptionSelect(idx, idx === currentQuestion.correct_index)} disabled={selectedOption !== null} className={btnClass}>
                           <span className="inline-block w-8 font-medium opacity-50">{['A','B','C','D'][idx]}.</span> {opt}
                         </button>
                       )
@@ -378,14 +443,36 @@ function App() {
                   
                   {selectedOption !== null && (
                     <div className="mt-8 p-5 bg-[#2f2f2f] rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-4 text-[15px]">
-                      <p className={`font-semibold mb-2 ${selectedOption === mcqModal.correct_index ? 'text-green-400' : 'text-red-400'}`}>
-                        {selectedOption === mcqModal.correct_index ? '✅ Correct' : '❌ Incorrect'}
+                      <p className={`font-semibold mb-2 ${selectedOption === currentQuestion.correct_index ? 'text-green-400' : 'text-red-400'}`}>
+                        {selectedOption === currentQuestion.correct_index ? '✅ Correct' : '❌ Incorrect'}
                       </p>
-                      <p className="text-gray-300 leading-relaxed">{mcqModal.explanation}</p>
+                      <p className="text-gray-300 leading-relaxed mb-6">{currentQuestion.explanation}</p>
+                      
+                      <button onClick={nextQuestion} className="w-full bg-white hover:bg-gray-200 text-black font-medium py-3 rounded-lg transition-colors">
+                        {currentQuestionIndex < mcqModal.length - 1 ? 'Next Question' : 'View Final Score'}
+                      </button>
                     </div>
                   )}
                 </div>
               </>
+            ) : (
+              // Quiz Results Screen
+              <div className="p-12 text-center">
+                <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="text-3xl">🏆</span>
+                </div>
+                <h2 className="text-3xl font-bold text-white mb-2">Quiz Complete!</h2>
+                <p className="text-gray-400 mb-8">You just reviewed this topic.</p>
+                
+                <div className="bg-[#2f2f2f] border border-white/10 rounded-2xl p-6 mb-8 inline-block min-w-[200px]">
+                  <p className="text-sm text-gray-400 mb-2 uppercase tracking-widest font-semibold">Your Score</p>
+                  <p className="text-5xl font-black text-white">{quizScore} <span className="text-2xl text-gray-500">/ {mcqModal.length}</span></p>
+                </div>
+                
+                <button onClick={closeQuiz} className="w-full bg-white hover:bg-gray-200 text-black font-medium py-3.5 rounded-xl transition-colors">
+                  Close and Continue Chat
+                </button>
+              </div>
             )}
           </div>
         </div>
