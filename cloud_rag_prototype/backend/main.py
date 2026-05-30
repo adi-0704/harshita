@@ -67,7 +67,7 @@ def query_knowledge_base(request: QueryRequest):
             )
             
             # Retrieve documents across all books from Cloud DB
-            docs = vectorstore.similarity_search(request.query, k=15)
+            docs = vectorstore.similarity_search(request.query, k=6)
             
             if not docs:
                 return {"summary": "No relevant information found in the database.", "sources": []}
@@ -94,7 +94,7 @@ def query_knowledge_base(request: QueryRequest):
                     history_text += f"{role.capitalize()}: {content}\n"
                 history_text += "\n"
             
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
             
             prompt = f"""You are an expert medical AI assistant designed to generate high-quality, easy-to-study exam notes.
 Use the following pieces of retrieved context from medical textbooks to answer the question.
@@ -155,7 +155,7 @@ def generate_mcq(request: MCQRequest):
                 
             context = "\n\n".join(context_parts)
             
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
             
             prompt = f"""You are a medical examiner. Generate ONE multiple-choice question (MCQ) based on the following context.
 The question should test high-yield concepts. Provide exactly 4 options. 
