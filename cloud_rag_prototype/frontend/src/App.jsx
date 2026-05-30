@@ -127,10 +127,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col relative selection:bg-teal-500/30 font-sans">
+    <div className="h-screen bg-[#0f172a] text-slate-100 flex flex-col selection:bg-teal-500/30 font-sans overflow-hidden">
       
       {/* Navbar */}
-      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-4 sm:px-6 py-4 flex justify-between items-center shadow-lg">
+      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 py-4 flex justify-between items-center shadow-lg shrink-0">
         <div className="flex items-center gap-3">
           <div className="bg-gradient-to-br from-teal-400 to-indigo-500 w-8 h-8 rounded-lg flex items-center justify-center font-bold shadow-lg shadow-teal-500/20">M</div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-teal-300 to-indigo-300 bg-clip-text text-transparent">MedAI RAG</h1>
@@ -145,7 +145,7 @@ function App() {
       </header>
 
       {/* Main Chat Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto pb-32">
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto">
         
         {messages.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-70 mt-20">
@@ -230,7 +230,7 @@ function App() {
       </main>
 
       {/* Input Area */}
-      <div className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800 p-4 z-30">
+      <div className="bg-slate-900/90 backdrop-blur-xl border-t border-slate-800 p-4 shrink-0 w-full z-30">
         <div className="max-w-4xl mx-auto flex gap-3 relative">
           <input
             type="text"
