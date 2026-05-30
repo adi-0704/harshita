@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import html2pdf from 'html2pdf.js'
+import { supabase } from './supabaseClient'
+import Auth from './Auth'
 
 const API_BASE = 'https://medical-ai-backend.vercel.app';
 // Use local backend for testing if needed: const API_BASE = 'http://127.0.0.1:8001';
 
 function App() {
+  const [session, setSession] = useState(null)
   const [query, setQuery] = useState('')
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
@@ -25,6 +28,48 @@ function App() {
   
   const chatEndRef = useRef(null)
 
+  // Auth Session Management
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Cloud History Sync
+  useEffect(() => {
+    if (session) {
+      const fetchHistory = async () => {
+        const { data, error } = await supabase
+          .from('chat_history')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: true });
+        
+        if (!error && data) {
+          const mapped = data.map(row => ({
+            id: row.id,
+            role: row.role,
+            content: row.content,
+            sources: row.sources || [],
+            showSources: false
+          }))
+          setMessages(mapped)
+        }
+      }
+      fetchHistory()
+    } else {
+      setMessages([])
+    }
+  }, [session])
+
   useEffect(() => {
     localStorage.setItem('mbbs_saved_notes', JSON.stringify(savedNotes))
   }, [savedNotes])
@@ -36,14 +81,22 @@ function App() {
   const handleQuery = async () => {
     if (!query.trim()) return;
     
-    const userMsg = { id: Date.now(), role: 'user', content: query }
+    const userMsg = { id: Date.now().toString(), role: 'user', content: query }
     const currentHistory = [...messages]
     setMessages([...currentHistory, userMsg])
     setQuery('')
     setLoading(true)
     setError(null)
+
+    if (session) {
+      supabase.from('chat_history').insert({
+        user_id: session.user.id,
+        role: 'user',
+        content: userMsg.content,
+        sources: null
+      }).then()
+    }
     
-    // Format history for backend (only send text content to save tokens)
     const apiHistory = currentHistory.map(m => ({ role: m.role, content: m.content }))
     
     try {
@@ -60,13 +113,23 @@ function App() {
       }
       
       const aiMsg = { 
-        id: Date.now() + 1, 
+        id: (Date.now() + 1).toString(), 
         role: 'ai', 
         content: data.summary, 
         sources: data.sources || [],
         showSources: false
       }
       setMessages(prev => [...prev, aiMsg])
+
+      if (session) {
+        supabase.from('chat_history').insert({
+          user_id: session.user.id,
+          role: 'ai',
+          content: aiMsg.content,
+          sources: aiMsg.sources
+        }).then()
+      }
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -105,7 +168,6 @@ function App() {
     setMcqModal(null)
     setSelectedOption(null)
     
-    // Find the user's original query right before this AI message to use as the search topic
     const aiIdx = messages.findIndex(m => m.id === aiMsgId);
     let topicQuery = "Medical high-yield concepts";
     if (aiIdx > 0 && messages[aiIdx - 1].role === 'user') {
@@ -127,6 +189,10 @@ function App() {
     }
   }
 
+  if (!session) {
+    return <Auth />
+  }
+
   return (
     <div className="h-screen bg-[#0f172a] text-slate-100 flex flex-col selection:bg-teal-500/30 font-sans overflow-hidden">
       
@@ -136,13 +202,21 @@ function App() {
           <div className="bg-gradient-to-br from-teal-400 to-indigo-500 w-8 h-8 rounded-lg flex items-center justify-center font-bold shadow-lg shadow-teal-500/20">M</div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-teal-300 to-indigo-300 bg-clip-text text-transparent">MedAI RAG</h1>
         </div>
-        <button 
-          onClick={() => setShowSavedSidebar(!showSavedSidebar)}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          <svg className="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-          Saved Notes ({savedNotes.length})
-        </button>
+        <div className="flex gap-2 sm:gap-4 items-center">
+          <button 
+            onClick={() => supabase.auth.signOut()}
+            className="text-slate-400 hover:text-white px-3 py-2 text-sm font-medium transition-colors"
+          >
+            Log Out
+          </button>
+          <button 
+            onClick={() => setShowSavedSidebar(!showSavedSidebar)}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <svg className="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+            Saved Notes ({savedNotes.length})
+          </button>
+        </div>
       </header>
 
       {/* Main Chat Area */}
@@ -333,7 +407,6 @@ function App() {
               ) : (
                 savedNotes.map((note) => (
                   <div key={note.id} className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden flex flex-col group">
-                    {/* Hidden container specifically formatted for PDF Export */}
                     <div className="hidden">
                       <div id={`pdf-export-${note.id}`} className="bg-white text-black p-10 font-serif">
                         <h1 style={{ fontSize: '24px', borderBottom: '2px solid #333', paddingBottom: '10px', marginBottom: '20px' }}>MBBS MedAI Exam Note</h1>
