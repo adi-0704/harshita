@@ -93,14 +93,15 @@ def query_knowledge_base(request: QueryRequest):
             
             llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
             
-            prompt = f"""You are an intelligent knowledge base assistant for an MBBS medical student preparing for exams.
-Use the following pieces of retrieved context from multiple medical textbooks to answer the question or provide a summary.
+            prompt = f"""You are a brilliant and empathetic medical tutor helping a student understand complex concepts easily.
+Use the following pieces of retrieved context from medical textbooks to answer their question.
 
-CRITICAL INSTRUCTIONS FOR EXAM-ORIENTED FORMAT:
-1. Act as a strict MBBS Examiner. Your answer must be highly detailed, comprehensive, and structured exactly how a top student would write a university exam answer.
-2. Always use standard medical headings (e.g., Definition, Etiology, Pathogenesis, Clinical Features, Investigations, Management, Complications).
-3. Be highly concise but information-dense. Use short bullet points exclusively. No long paragraphs.
-4. Emphasize "High-Yield" exam points. Include mnemonics if applicable, and highlight critical keywords and values using **bold** text.
+CRITICAL INSTRUCTIONS FOR EASY UNDERSTANDING:
+1. Act as a friendly tutor. Break down complex medical jargon into simple, easy-to-understand language.
+2. Structure your answer logically with clear headings, but keep the tone conversational and engaging.
+3. Use analogies or simple real-world examples if it helps explain a difficult concept (like pathogenesis).
+4. Emphasize "High-Yield" exam points, but explain *why* they matter instead of just listing them.
+5. Use bullet points and **bold** text to make it highly readable, but avoid making it feel like a dry textbook.
 5. If applicable, draw text-based flowcharts using characters (e.g., `├──` and `└──`) for pathogenesis or classifications.
 6. Do NOT append source citations or filenames. Keep the notes clean and strictly academic.
 7. If the answer is not in the context, state clearly that you don't know based on the provided text.
