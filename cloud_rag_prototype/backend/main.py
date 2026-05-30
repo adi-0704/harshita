@@ -45,9 +45,12 @@ def get_env_vars():
         
     return api_keys, supabase_url, supabase_key
 
+import random
+
 @app.post("/query")
 def query_knowledge_base(request: QueryRequest):
     api_keys, supabase_url, supabase_key = get_env_vars()
+    random.shuffle(api_keys)
     
     last_error = None
     
@@ -128,6 +131,7 @@ Question: {request.query}"""
 @app.post("/generate_mcq")
 def generate_mcq(request: MCQRequest):
     api_keys, supabase_url, supabase_key = get_env_vars()
+    random.shuffle(api_keys)
     
     last_error = None
     

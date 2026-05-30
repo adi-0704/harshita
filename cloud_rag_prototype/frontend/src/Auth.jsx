@@ -151,6 +151,10 @@ export default function Auth() {
                   {isSignUp ? 'Log In' : 'Sign Up'}
                 </button>
               </p>
+              
+              <div className="mt-4 text-[10px] text-slate-600 font-mono">
+                DEBUG: URL is {import.meta.env.VITE_SUPABASE_URL ? 'Loaded' : 'MISSING'} | KEY is {import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Loaded' : 'MISSING'}
+              </div>
             </div>
           </div>
         </div>
