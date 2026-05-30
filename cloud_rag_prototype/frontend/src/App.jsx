@@ -377,10 +377,10 @@ function App() {
       </aside>
 
       {/* Main Chat Container */}
-      <div className="flex-1 flex flex-col h-screen relative w-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-screen w-full overflow-hidden bg-white dark:bg-black">
         
         {/* Header bar (Mobile hamburger + Score/Notes) */}
-        <header className="absolute top-0 w-full bg-white/90 dark:bg-black/80 backdrop-blur-md z-30 border-b border-gray-200 dark:border-white/10 px-4 py-3 flex justify-between items-center transition-all duration-300">
+        <header className="shrink-0 w-full bg-white/90 dark:bg-black/80 border-b border-gray-200 dark:border-white/10 px-4 py-3 flex justify-between items-center transition-all duration-300">
           <div className="flex items-center gap-2">
             <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-gray-500 hover:text-black dark:hover:text-white">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -404,7 +404,7 @@ function App() {
         </header>
 
         {/* Main Chat Area */}
-        <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto pb-32 pt-16">
+        <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto scroll-smooth">
         
         {messages.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-80 mt-20">
@@ -490,7 +490,7 @@ function App() {
       </main>
 
       {/* Input Area */}
-      <div className="absolute bottom-0 w-full bg-gradient-to-t from-gray-50 via-gray-50 dark:from-[#212121] dark:via-[#212121] to-transparent pt-10 pb-6 px-4 z-30 transition-colors duration-300">
+      <div className="shrink-0 w-full bg-white dark:bg-black pt-4 pb-6 px-4 border-t border-transparent dark:border-white/5 transition-colors duration-300">
         <div className="max-w-3xl mx-auto relative">
           <div className="bg-white dark:bg-[#2f2f2f] border border-gray-300 dark:border-white/10 rounded-2xl flex items-end p-2 shadow-lg focus-within:border-blue-400 dark:focus-within:border-white/30 transition-colors">
             <textarea
