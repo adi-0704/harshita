@@ -587,7 +587,6 @@ function App() {
                         ))}
                       </div>
                     </div>
-                    </div>
                   )}
 
                   {/* AI Suggestions Pills */}
