@@ -366,11 +366,13 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: topicQuery, context_summary: aiMsgContent.substring(0, 1000) }),
       });
-      const data = await response.json(); // Array of 5 questions
-      if (!Array.isArray(data) || data.length === 0) {
+      const data = await response.json();
+      // Backend returns { success: true, questions: [...] }
+      const questions = Array.isArray(data) ? data : (data.questions || []);
+      if (!Array.isArray(questions) || questions.length === 0) {
         throw new Error("Invalid format received from server.")
       }
-      setMcqModal(data)
+      setMcqModal(questions)
     } catch (err) {
       alert("Failed to generate MCQ: " + err.message)
     } finally {
