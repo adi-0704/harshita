@@ -8,3 +8,4 @@ langchain-google-genai
 pypdf
 python-multipart
 langchain-community
+langchain
