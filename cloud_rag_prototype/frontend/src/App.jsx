@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm'
 import html2pdf from 'html2pdf.js'
 import { supabase } from './supabaseClient'
 import Auth from './Auth'
+import Dashboard from './components/Dashboard'
+import Flashcards from './components/Flashcards'
 
 const API_BASE = 'https://medical-ai-backend.vercel.app';
 // Use local backend for testing if needed: const API_BASE = 'http://127.0.0.1:8001';
@@ -25,6 +27,10 @@ function App() {
   })
   const [showSavedSidebar, setShowSavedSidebar] = useState(false)
   const [expandedNoteId, setExpandedNoteId] = useState(null)
+  const [showDashboard, setShowDashboard] = useState(false)
+  const [showFlashcards, setShowFlashcards] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [uploadingPdf, setUploadingPdf] = useState(false)
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -149,10 +155,97 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleQuery = async () => {
-    if (!query.trim()) return;
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingPdf(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('user_id', session.user.id);
     
-    const userMsg = { id: Date.now().toString(), role: 'user', content: query }
+    try {
+      const response = await fetch(`${API_BASE}/upload_pdf`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert(data.message);
+      } else {
+        alert(data.detail || "Upload failed");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      setUploadingPdf(false);
+      e.target.value = null;
+    }
+  }
+
+  const toggleListening = () => {
+    if (isListening) return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Your browser does not support Voice Input. Please use Chrome or Edge.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event) => {
+      let finalTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        }
+      }
+      if (finalTranscript) {
+        setQuery(prev => prev + (prev ? ' ' : '') + finalTranscript);
+      }
+    };
+    recognition.onerror = (e) => { console.error(e); setIsListening(false); };
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+  }
+
+  const generateFlashcards = async (content) => {
+    if (!session) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/generate_flashcards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content }),
+      });
+      const data = await response.json();
+      if (data.success && data.flashcards) {
+        for (const card of data.flashcards) {
+          await supabase.from('flashcards').insert({
+            user_id: session.user.id,
+            question: card.question,
+            answer: card.answer,
+            topic: currentSessionId ? sessions.find(s => s.id === currentSessionId)?.title : 'General'
+          });
+        }
+        alert(`Successfully generated and saved ${data.flashcards.length} flashcards!`);
+        setShowFlashcards(true);
+      } else {
+        alert("Failed to generate flashcards.");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleQuery = async (overrideQuery = null) => {
+    const q = overrideQuery || query;
+    if (!q.trim()) return;
+    
+    const userMsg = { id: Date.now().toString(), role: 'user', content: q }
     const currentHistory = [...messages]
     setMessages([...currentHistory, userMsg])
     setQuery('')
@@ -191,7 +284,7 @@ function App() {
       const response = await fetch(`${API_BASE}/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.content, history: apiHistory }),
+        body: JSON.stringify({ query: userMsg.content, history: apiHistory, user_id: session ? session.user.id : null }),
       });
       
       const data = await response.json();
@@ -205,6 +298,7 @@ function App() {
         role: 'ai', 
         content: data.summary, 
         sources: data.sources || [],
+        suggestions: data.suggestions || [],
         showSources: false
       }
       setMessages(prev => [...prev, aiMsg])
@@ -335,11 +429,31 @@ function App() {
           </button>
         </div>
         
-        <div className="px-3 pb-3 shrink-0">
-          <button onClick={startNewChat} className="w-full flex items-center gap-3 bg-white dark:bg-[#212121] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border border-gray-200 dark:border-white/10 px-4 py-3 rounded-xl text-sm font-medium transition-colors text-black dark:text-white shadow-sm">
+        <div className="px-3 pb-3 shrink-0 space-y-2">
+          <button onClick={() => { setShowDashboard(false); setShowFlashcards(false); startNewChat(); }} className="w-full flex items-center gap-3 bg-white dark:bg-[#212121] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border border-gray-200 dark:border-white/10 px-4 py-3 rounded-xl text-sm font-medium transition-colors text-black dark:text-white shadow-sm">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
             New Chat
           </button>
+          
+          <div className="flex gap-2">
+            <button onClick={() => { setShowDashboard(true); setShowFlashcards(false); setIsSidebarOpen(false); }} className="flex-1 flex items-center justify-center gap-2 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+              Dashboard
+            </button>
+            <button onClick={() => { setShowFlashcards(true); setShowDashboard(false); setIsSidebarOpen(false); }} className="flex-1 flex items-center justify-center gap-2 bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 text-purple-700 dark:text-purple-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors">
+              <span className="text-sm">📇</span>
+              Flashcards
+            </button>
+          </div>
+          
+          <label className={`w-full flex items-center justify-center gap-2 cursor-pointer ${uploadingPdf ? 'bg-gray-100 dark:bg-gray-800 text-gray-400' : 'bg-gray-100 dark:bg-[#2f2f2f] hover:bg-gray-200 dark:hover:bg-[#3f3f3f] text-gray-700 dark:text-gray-300'} px-3 py-2 rounded-lg text-xs font-medium transition-colors`}>
+            {uploadingPdf ? (
+              <><svg className="animate-spin h-3 w-3 mr-1" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Uploading...</>
+            ) : (
+              <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Upload PDF</>
+            )}
+            <input type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={uploadingPdf} />
+          </label>
         </div>
         
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
@@ -347,8 +461,8 @@ function App() {
           {sessions.map(s => (
             <button 
               key={s.id} 
-              onClick={() => { setCurrentSessionId(s.id); setIsSidebarOpen(false); }}
-              className={`w-full text-left truncate px-3 py-2.5 rounded-lg text-sm transition-colors ${currentSessionId === s.id ? 'bg-gray-200 dark:bg-[#2a2a2a] font-medium text-black dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#212121] hover:text-black dark:hover:text-white'}`}
+              onClick={() => { setCurrentSessionId(s.id); setShowDashboard(false); setShowFlashcards(false); setIsSidebarOpen(false); }}
+              className={`w-full text-left truncate px-3 py-2.5 rounded-lg text-sm transition-colors ${currentSessionId === s.id && !showDashboard && !showFlashcards ? 'bg-gray-200 dark:bg-[#2a2a2a] font-medium text-black dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#212121] hover:text-black dark:hover:text-white'}`}
             >
               {s.title}
             </button>
@@ -403,6 +517,13 @@ function App() {
           </div>
         </header>
 
+        {/* Dynamic Views */}
+        {showDashboard ? (
+          <Dashboard session={session} totalCorrect={totalCorrect} totalQuestions={totalQuestions} savedNotesCount={savedNotes.length} onClose={() => setShowDashboard(false)} />
+        ) : showFlashcards ? (
+          <Flashcards session={session} onClose={() => setShowFlashcards(false)} />
+        ) : (
+        <>
         {/* Main Chat Area */}
         <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto scroll-smooth">
         
@@ -440,6 +561,9 @@ function App() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                       Test Me (5-Q Quiz)
                     </button>
+                    <button onClick={() => generateFlashcards(msg.content)} className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white transition-colors bg-transparent hover:bg-gray-200 dark:hover:bg-white/10 px-3 py-1.5 rounded-lg">
+                      <span className="text-sm">📇</span> Generate Flashcards
+                    </button>
                     {msg.sources && msg.sources.length > 0 && (
                       <button onClick={() => toggleSources(msg.id)} className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white transition-colors bg-transparent hover:bg-gray-200 dark:hover:bg-white/10 px-3 py-1.5 rounded-lg">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
@@ -462,6 +586,22 @@ function App() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                    </div>
+                  )}
+
+                  {/* AI Suggestions Pills */}
+                  {msg.suggestions && msg.suggestions.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {msg.suggestions.map((sug, idx) => (
+                        <button 
+                          key={idx} 
+                          onClick={() => handleQuery(sug)}
+                          className="text-left text-sm bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 px-4 py-2 rounded-full border border-blue-200 dark:border-blue-500/30 transition-colors shadow-sm"
+                        >
+                          ✨ {sug}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -506,8 +646,15 @@ function App() {
                 }
               }}
             />
-            <button
-              onClick={handleQuery}
+              <button
+                onClick={toggleListening}
+                className={`p-3 m-1 rounded-xl transition-colors shrink-0 ${isListening ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400 animate-pulse' : 'bg-transparent text-gray-400 hover:text-black dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                title="Voice Input"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+              </button>
+              <button
+                onClick={() => handleQuery()}
               disabled={loading || !query.trim()}
               className="bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200 p-3 m-1 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
@@ -517,8 +664,11 @@ function App() {
           <div className="text-center mt-3 text-xs text-gray-500">
             MedAI can make mistakes. Consider verifying important clinical information.
           </div>
+          </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* MCQ Multi-Question Quiz Modal */}
       {(mcqLoading || mcqModal) && (

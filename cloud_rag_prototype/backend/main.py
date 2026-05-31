@@ -1,7 +1,10 @@
 import os
 import json
+import random
+import io
+import re
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -9,6 +12,7 @@ from dotenv import load_dotenv
 from supabase.client import Client, create_client
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
@@ -25,10 +29,14 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     query: str
     history: Optional[list] = []
+    user_id: Optional[str] = None
 
 class MCQRequest(BaseModel):
     query: str
     context_summary: str = ""
+
+class FlashcardRequest(BaseModel):
+    text: str
 
 def get_env_vars():
     api_keys = [os.getenv("GEMINI_API_KEY")]
@@ -59,27 +67,38 @@ def query_knowledge_base(request: QueryRequest):
             supabase: Client = create_client(supabase_url, supabase_key)
             embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
             
-            vectorstore = SupabaseVectorStore(
-                client=supabase,
-                embedding=embeddings,
-                table_name="documents",
-                query_name="match_documents"
-            )
+            # Embed the query once
+            query_embedding = embeddings.embed_query(request.query)
             
-            # Retrieve documents across all books from Cloud DB
-            docs = vectorstore.similarity_search(request.query, k=6)
+            # Retrieve from global documents
+            response_global = supabase.rpc("match_documents", {"query_embedding": query_embedding, "match_count": 6}).execute()
+            docs_global = response_global.data if response_global.data else []
             
-            if not docs:
-                return {"summary": "No relevant information found in the database.", "sources": []}
+            # Retrieve from user documents if user_id is provided
+            docs_user = []
+            if request.user_id:
+                response_user = supabase.rpc("match_user_documents", {
+                    "query_embedding": query_embedding, 
+                    "match_count": 4, 
+                    "p_user_id": request.user_id
+                }).execute()
+                docs_user = response_user.data if response_user.data else []
                 
-            # Optional: Format context with book metadata to help LLM cite sources
+            all_docs = docs_global + docs_user
+            
+            if not all_docs:
+                return {"summary": "No relevant information found in the database or your uploaded documents.", "sources": [], "suggestions": []}
+                
+            # Format context
             context_parts = []
             sources_list = []
-            for doc in docs:
-                source = doc.metadata.get('source_book', 'Unknown Book')
-                context_parts.append(f"[Source: {source}]\n{doc.page_content}")
+            for doc in all_docs:
+                meta = doc.get("metadata", {})
+                source = meta.get('source_book', 'Unknown Source')
+                content = doc.get("content", "")
+                context_parts.append(f"[Source: {source}]\n{content}")
                 sources_list.append({
-                    "content": doc.page_content,
+                    "content": content,
                     "source_book": source
                 })
                 
@@ -97,18 +116,25 @@ def query_knowledge_base(request: QueryRequest):
             llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
             
             prompt = f"""You are an expert medical AI assistant designed to generate high-quality, easy-to-study exam notes.
-Use the following pieces of retrieved context from medical textbooks to answer the question.
+Use the following pieces of retrieved context from medical textbooks and user uploads to answer the question.
 
 CRITICAL INSTRUCTIONS FOR CHATGPT-STYLE EXAM NOTES:
 1. Act like a highly helpful study buddy. Your goal is to generate clean, structured, and highly readable exam notes.
-2. Use clear, bold headings to organize the information logically (e.g., **Introduction**, **Causes**, **Symptoms**, **Treatment**).
+2. Use clear, bold headings to organize the information logically.
 3. Use concise bullet points for everything. Avoid big, overwhelming walls of text.
 4. Bold the most important keywords and high-yield concepts so they are easy to scan and memorize.
-5. Keep the language simple and easy to understand, avoiding overly dense academic phrasing while maintaining medical accuracy.
+5. Keep the language simple and easy to understand.
 6. If applicable, draw text-based flowcharts using characters (e.g., `├──` and `└──`) for pathogenesis or classifications.
-7. Do NOT append source citations or filenames. Keep the notes clean and strictly academic.
+7. Do NOT append source citations or filenames in the text.
 8. If the answer is not in the context, state clearly that you don't know based on the provided text.
 9. Answer the user's latest Question, keeping in mind the Previous Conversation history if provided.
+
+At the very end of your response, you MUST provide 3 suggested follow-up questions that the user could ask next to deepen their understanding. 
+Format them EXACTLY like this on new lines at the end of the text:
+---SUGGESTIONS---
+1. [Question 1]
+2. [Question 2]
+3. [Question 3]
 
 {history_text}
 Context:
@@ -117,8 +143,22 @@ Context:
 Question: {request.query}"""
             
             response = llm.invoke(prompt)
+            raw_content = response.content
             
-            return {"summary": response.content, "sources": sources_list}
+            # Parse out suggestions
+            suggestions = []
+            main_content = raw_content
+            if "---SUGGESTIONS---" in raw_content:
+                parts = raw_content.split("---SUGGESTIONS---")
+                main_content = parts[0].strip()
+                sug_text = parts[1].strip()
+                # extract lines starting with numbers
+                for line in sug_text.split('\n'):
+                    line = line.strip()
+                    if re.match(r'^\d+\.', line):
+                        suggestions.append(re.sub(r'^\d+\.\s*', '', line))
+            
+            return {"summary": main_content, "sources": sources_list, "suggestions": suggestions[:3]}
             
         except Exception as e:
             last_error = str(e)
@@ -179,19 +219,102 @@ Context:
                 raw_text = raw_text[:-3]
             raw_text = raw_text.strip()
             
-            parsed = json.loads(raw_text)
-            
-            # Ensure it's a list
-            if isinstance(parsed, dict) and "questions" in parsed:
-                parsed = parsed["questions"]
-            elif isinstance(parsed, dict):
-                parsed = [parsed]
+            try:
+                questions = json.loads(raw_text)
+                # Ensure it's a list
+                if isinstance(questions, dict) and "questions" in questions:
+                    return {"success": True, "questions": questions["questions"]}
+                return {"success": True, "questions": questions}
+            except json.JSONDecodeError:
+                print(f"Failed to parse JSON on key {api_key}")
+                last_error = "LLM did not return valid JSON."
+                continue
                 
-            return parsed
-            
         except Exception as e:
             last_error = str(e)
-            print(f"API Key failed for MCQ: {last_error}. Retrying with next key...")
+            print(f"API Key failed: {last_error}. Retrying with next key...")
             continue
             
-    raise HTTPException(status_code=500, detail=f"All API keys exhausted. Last error: {last_error}")
+    raise HTTPException(status_code=500, detail=f"Failed to generate MCQ. Last error: {last_error}")
+
+import pypdf
+
+@app.post("/upload_pdf")
+async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+        
+    try:
+        content = await file.read()
+        pdf_reader = pypdf.PdfReader(io.BytesIO(content))
+        text = ""
+        for page in pdf_reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + "\n"
+                
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from the PDF.")
+            
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = text_splitter.split_text(text)
+        
+        api_keys, supabase_url, supabase_key = get_env_vars()
+        api_key = random.choice(api_keys)
+        supabase: Client = create_client(supabase_url, supabase_key)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
+        
+        embedded_chunks = embeddings.embed_documents(chunks)
+        records = []
+        for i, chunk in enumerate(chunks):
+            records.append({
+                "user_id": user_id,
+                "content": chunk,
+                "metadata": {"source_book": file.filename},
+                "embedding": embedded_chunks[i]
+            })
+        
+        for i in range(0, len(records), 100):
+            batch = records[i:i+100]
+            supabase.table("user_documents").insert(batch).execute()
+            
+        return {"status": "success", "message": f"Processed and indexed {len(chunks)} chunks from {file.filename}."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate_flashcards")
+def generate_flashcards(request: FlashcardRequest):
+    api_keys, supabase_url, supabase_key = get_env_vars()
+    random.shuffle(api_keys)
+    last_error = None
+    
+    for api_key in api_keys:
+        try:
+            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+            prompt = f"""You are a medical study assistant. Your goal is to convert the following medical notes into high-yield Anki-style flashcards.
+Extract 3 to 5 key facts from the text and create Question/Answer pairs.
+
+Respond strictly with a JSON array of objects, with no markdown formatting around it. Each object must have "question" and "answer" keys.
+
+Text:
+{request.text}
+"""
+            response = llm.invoke(prompt)
+            raw_text = response.content.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3].strip()
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3].strip()
+                
+            try:
+                flashcards = json.loads(raw_text)
+                return {"success": True, "flashcards": flashcards}
+            except json.JSONDecodeError:
+                last_error = "Invalid JSON returned."
+                continue
+                
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    raise HTTPException(status_code=500, detail=f"Failed to generate flashcards. Last error: {last_error}")
