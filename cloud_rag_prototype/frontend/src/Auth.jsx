@@ -346,53 +346,112 @@ export default function Auth() {
           </div>
         </section>
 
-        {/* Pricing */}
-        <section id="pricing" className="bg-gray-50 dark:bg-[#0f0f0f] py-32 border-y border-gray-200 dark:border-white/5 text-center transition-colors duration-300">
-          <div className="max-w-5xl mx-auto px-6">
-            <h2 className="text-4xl font-semibold mb-6 text-black dark:text-white">Simple, transparent pricing.</h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400 mb-16">Start with a 14-day free trial. Cancel anytime.</p>
+        {/* Pricing (Apple Style) */}
+        <section id="pricing" className="py-32 px-6 transition-colors duration-300 bg-white dark:bg-black">
+          <div className="max-w-5xl mx-auto text-center">
+            <h2 className="text-5xl md:text-6xl font-semibold mb-6 text-black dark:text-white tracking-tight">One simple trial.<br/>Two powerful plans.</h2>
+            <p className="text-xl text-gray-500 dark:text-gray-400 mb-20 font-light">Start with a 14-day free trial on any plan. Cancel anytime.</p>
             
             <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              {/* Basic Tier */}
-              <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-3xl p-10 text-left shadow-sm hover:shadow-xl transition-shadow flex flex-col justify-between">
+              
+              {/* Basic Tier - Ultra Minimal */}
+              <div className="bg-[#f5f5f7] dark:bg-[#1d1d1f] rounded-[2rem] p-12 text-left flex flex-col justify-between hover:scale-[1.02] transition-transform duration-300">
                 <div>
-                  <h3 className="text-2xl font-medium mb-2 text-black dark:text-white">Basic</h3>
-                  <div className="flex items-end gap-2 mb-8">
-                    <span className="text-5xl font-semibold text-black dark:text-white">₹599</span>
-                    <span className="text-gray-500 dark:text-gray-400 mb-1">/ month</span>
+                  <h3 className="text-3xl font-semibold text-black dark:text-white mb-2 tracking-tight">Basic</h3>
+                  <p className="text-gray-500 dark:text-gray-400 font-light mb-8">For casual study sessions.</p>
+                  <div className="mb-10">
+                    <span className="text-6xl font-bold text-black dark:text-white tracking-tighter">₹599</span>
+                    <span className="text-lg text-gray-500 dark:text-gray-400 ml-2 font-medium">/mo</span>
                   </div>
-                  <ul className="space-y-4 mb-10 text-gray-700 dark:text-gray-300">
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 100 RAG Queries / month</li>
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Flashcard Generator</li>
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Voice Dictation</li>
-                  </ul>
+                  
+                  <div className="space-y-4 mb-12 text-gray-800 dark:text-gray-200 font-medium">
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      100 AI Queries per month
+                    </p>
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      Voice Dictation
+                    </p>
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      Flashcard Generator
+                    </p>
+                  </div>
                 </div>
-                <button onClick={() => openModal(true)} className="w-full bg-gray-100 dark:bg-[#2f2f2f] text-black dark:text-white hover:bg-gray-200 dark:hover:bg-[#3f3f3f] font-medium py-3 rounded-xl transition-colors border border-gray-200 dark:border-white/10">
+                <button onClick={() => openModal(true)} className="w-full bg-black text-white dark:bg-white dark:text-black py-4 rounded-full font-semibold text-lg hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors shadow-lg">
                   Start 14-Day Free Trial
                 </button>
               </div>
 
-              {/* Pro Tier */}
-              <div className="bg-black dark:bg-[#1e1e1e] border border-gray-800 dark:border-white/20 rounded-3xl p-10 text-left shadow-2xl relative overflow-hidden transform md:-translate-y-4 flex flex-col justify-between">
-                <div className="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">POPULAR</div>
+              {/* Pro Tier - Apple Dark/Premium */}
+              <div className="bg-black dark:bg-[#111] rounded-[2rem] p-12 text-left flex flex-col justify-between hover:scale-[1.02] transition-transform duration-300 relative border border-transparent dark:border-white/10 shadow-2xl">
+                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-t-[2rem]"></div>
                 <div>
-                  <h3 className="text-2xl font-medium mb-2 text-white">Pro</h3>
-                  <div className="flex items-end gap-2 mb-8">
-                    <span className="text-5xl font-semibold text-white">₹999</span>
-                    <span className="text-gray-400 mb-1">/ month</span>
+                  <h3 className="text-3xl font-semibold text-white mb-2 tracking-tight">Pro</h3>
+                  <p className="text-gray-400 font-light mb-8">For power users and medical students.</p>
+                  <div className="mb-10">
+                    <span className="text-6xl font-bold text-white tracking-tighter">₹999</span>
+                    <span className="text-lg text-gray-400 ml-2 font-medium">/mo</span>
                   </div>
-                  <ul className="space-y-4 mb-10 text-gray-300">
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 1000 RAG Queries / month</li>
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Custom PDF Uploads</li>
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Student Analytics Dashboard</li>
-                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Priority Support</li>
-                  </ul>
+                  
+                  <div className="space-y-4 mb-12 text-gray-200 font-medium">
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      1,000 AI Queries per month
+                    </p>
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      Custom PDF Uploads
+                    </p>
+                    <p className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                      Analytics Dashboard
+                    </p>
+                  </div>
                 </div>
-                <button onClick={() => openModal(true)} className="w-full bg-white text-black hover:bg-gray-200 font-medium py-3 rounded-xl transition-colors">
+                <button onClick={() => openModal(true)} className="w-full bg-white text-black py-4 rounded-full font-semibold text-lg hover:bg-gray-200 transition-colors shadow-lg">
                   Start 14-Day Free Trial
                 </button>
               </div>
+
             </div>
+          </div>
+        </section>
+
+        {/* About & Disclaimer Section */}
+        <section className="py-24 px-6 max-w-5xl mx-auto border-t border-gray-200 dark:border-white/10 mt-10">
+          <div className="grid md:grid-cols-2 gap-16">
+            
+            {/* About Us */}
+            <div>
+              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">About Us</h3>
+              <h2 className="text-3xl font-semibold mb-6 text-black dark:text-white">Built for the future of medicine.</h2>
+              <p className="text-gray-600 dark:text-gray-400 text-lg leading-relaxed mb-4">
+                MedAI RAG was founded with a simple mission: to empower the next generation of healthcare professionals with advanced Artificial Intelligence.
+              </p>
+              <p className="text-gray-600 dark:text-gray-400 text-lg leading-relaxed">
+                We believe that quick, accurate access to medical information saves lives. Our platform turns dense textbooks into interactive, instantly searchable knowledge bases, ensuring you never waste time flipping pages when you could be learning.
+              </p>
+            </div>
+
+            {/* Medical Disclaimer */}
+            <div className="bg-gray-50 dark:bg-[#111] p-8 rounded-3xl border border-gray-200 dark:border-white/10">
+              <h3 className="text-sm font-bold text-red-500 uppercase tracking-widest mb-4">Important Notice</h3>
+              <h2 className="text-2xl font-semibold mb-4 text-black dark:text-white">Medical Disclaimer</h2>
+              <div className="space-y-4 text-gray-600 dark:text-gray-400">
+                <p>
+                  <strong className="text-black dark:text-white">Not Medical Advice.</strong> The information provided by MedAI RAG is for educational and informational purposes only and does not constitute medical advice, diagnosis, or treatment.
+                </p>
+                <p>
+                  Always seek the advice of a qualified healthcare provider with any questions you may have regarding a medical condition. Never disregard professional medical advice or delay in seeking it because of something you have read on this application.
+                </p>
+                <p>
+                  <strong className="text-black dark:text-white">AI Limitations.</strong> MedAI RAG can make mistakes. All AI-generated content must be independently verified by a medical professional before clinical application.
+                </p>
+              </div>
+            </div>
+
           </div>
         </section>
 
