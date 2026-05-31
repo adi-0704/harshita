@@ -5,6 +5,10 @@ export default function Auth() {
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [age, setAge] = useState('')
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -53,7 +57,18 @@ export default function Auth() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            data: {
+              first_name: firstName,
+              last_name: lastName,
+              phone: phone,
+              age: age
+            }
+          }
+        })
         if (error) throw error
         setSuccessMsg("Registration successful! You can now log in.")
         setIsSignUp(false)
@@ -471,6 +486,48 @@ export default function Auth() {
               )}
 
               <form onSubmit={handleAuth} className="space-y-5">
+                {isSignUp && (
+                  <>
+                    <div className="flex gap-4">
+                      <input
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className="w-1/2 bg-white dark:bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-3.5 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:border-black dark:focus:border-white transition-colors"
+                        placeholder="First Name"
+                        required
+                      />
+                      <input
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className="w-1/2 bg-white dark:bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-3.5 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:border-black dark:focus:border-white transition-colors"
+                        placeholder="Last Name"
+                        required
+                      />
+                    </div>
+                    <div className="flex gap-4">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="w-2/3 bg-white dark:bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-3.5 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:border-black dark:focus:border-white transition-colors"
+                        placeholder="Phone Number"
+                        required
+                      />
+                      <input
+                        type="number"
+                        value={age}
+                        onChange={(e) => setAge(e.target.value)}
+                        className="w-1/3 bg-white dark:bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-3.5 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:border-black dark:focus:border-white transition-colors"
+                        placeholder="Age"
+                        required
+                        min="1"
+                        max="120"
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <input
                     type="email"
