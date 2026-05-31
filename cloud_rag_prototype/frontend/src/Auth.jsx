@@ -36,6 +36,7 @@ export default function Auth() {
   
   // Legal Modals State
   const [legalModal, setLegalModal] = useState(null) // 'privacy', 'terms', 'disclaimer', or null
+  const [demoFlipped, setDemoFlipped] = useState(false)
 
   const openModal = (signup = false) => {
     setIsSignUp(signup)
@@ -195,10 +196,10 @@ export default function Auth() {
         <section className="px-6 max-w-5xl mx-auto text-center mb-32 flex flex-col items-center">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 font-medium tracking-widest uppercase">November 30, 2026 &nbsp;&bull;&nbsp; Product</p>
           <h1 className="text-5xl md:text-7xl font-semibold tracking-tight mb-8 leading-tight text-black dark:text-white">
-            Introducing MedAI RAG
+            The Medical Study <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">Super-Platform</span>
           </h1>
           <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 max-w-3xl mb-12 font-light">
-            The ultimate AI Copilot for medical students and professionals. Stop searching through thousands of textbook pages. Chat directly with your medical library.
+            Upload your PDFs, generate instant Anki flashcards, dictate your medical questions, and track your performance with our powerful AI Copilot.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 mb-20 w-full sm:w-auto justify-center">
@@ -217,29 +218,78 @@ export default function Auth() {
           </div>
         </section>
 
-        {/* Features / About Section */}
+        {/* Features Bento Grid */}
         <section className="bg-gray-50 dark:bg-[#0f0f0f] py-32 border-y border-gray-200 dark:border-white/5 transition-colors duration-300">
-          <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-16">
-            <div className="space-y-4">
-              <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center mb-6">
-                <svg className="w-6 h-6 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+          <div className="max-w-6xl mx-auto px-6">
+            <h2 className="text-4xl font-semibold mb-16 text-center text-black dark:text-white">Everything you need to crush your exams.</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              
+              {/* Feature 1 */}
+              <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm flex flex-col justify-between md:col-span-2">
+                <div>
+                  <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center mb-6 text-blue-600 dark:text-blue-400">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                  </div>
+                  <h3 className="text-2xl font-bold text-black dark:text-white mb-3">Voice Dictation</h3>
+                  <p className="text-gray-600 dark:text-gray-400 text-lg">Medical terminology is hard to type. Just tap the microphone and speak. We'll transcribe complex terms perfectly.</p>
+                </div>
               </div>
-              <h3 className="text-2xl font-medium text-black dark:text-white">Direct Citations</h3>
-              <p className="text-gray-600 dark:text-gray-400 leading-relaxed text-lg">Every answer the AI generates is backed by exact textbook paragraphs to guarantee absolute clinical accuracy.</p>
+
+              {/* Feature 2 */}
+              <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm">
+                <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center mb-6 text-purple-600 dark:text-purple-400">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                </div>
+                <h3 className="text-2xl font-bold text-black dark:text-white mb-3">Upload Custom PDFs</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-lg">Upload your professor's lecture slides. The AI will instantly search and summarize them.</p>
+              </div>
+
+              {/* Feature 3 */}
+              <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm">
+                <div className="text-4xl mb-6">📇</div>
+                <h3 className="text-2xl font-bold text-black dark:text-white mb-3">Instant Flashcards</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-lg">Click one button to instantly generate high-yield Anki-style flashcards from any AI response.</p>
+              </div>
+
+              {/* Feature 4 */}
+              <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm">
+                <div className="text-4xl mb-6">✨</div>
+                <h3 className="text-2xl font-bold text-black dark:text-white mb-3">AI Suggestions</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-lg">Keep the conversation flowing with smart, clickable follow-up questions at the end of every answer.</p>
+              </div>
+
+              {/* Feature 5 */}
+              <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm md:col-span-2 lg:col-span-1">
+                <div className="text-4xl mb-6">📊</div>
+                <h3 className="text-2xl font-bold text-black dark:text-white mb-3">Student Dashboard</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-lg">Track your accuracy and study patterns with beautiful interactive charts.</p>
+              </div>
+
             </div>
-            <div className="space-y-4">
-              <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center mb-6">
-                <svg className="w-6 h-6 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+          </div>
+        </section>
+
+        {/* Interactive Demo */}
+        <section className="py-32 px-6 max-w-4xl mx-auto text-center">
+          <h2 className="text-4xl font-semibold mb-6 text-black dark:text-white">Try the Flashcard Engine</h2>
+          <p className="text-xl text-gray-600 dark:text-gray-400 mb-12">Tap the card below to flip it.</p>
+          
+          <div 
+            onClick={() => setDemoFlipped(!demoFlipped)}
+            className="w-full max-w-lg mx-auto aspect-[16/9] perspective-1000 cursor-pointer group"
+          >
+            <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${demoFlipped ? 'rotate-y-180' : ''}`}>
+              {/* Front */}
+              <div className="absolute inset-0 backface-hidden bg-white dark:bg-[#212121] rounded-3xl p-8 shadow-xl border border-gray-200 dark:border-white/10 flex flex-col justify-center items-center text-center">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest absolute top-6">Question</span>
+                <p className="text-2xl font-medium text-gray-900 dark:text-white">What is the most common cause of community-acquired pneumonia?</p>
+                <p className="text-sm text-blue-500 dark:text-blue-400 mt-6 font-medium group-hover:underline">Click to reveal answer</p>
               </div>
-              <h3 className="text-2xl font-medium text-black dark:text-white">Instant MCQs</h3>
-              <p className="text-gray-600 dark:text-gray-400 leading-relaxed text-lg">Test your knowledge instantly. The AI dynamically generates high-yield board-style questions based on your current chat topic.</p>
-            </div>
-            <div className="space-y-4">
-              <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center mb-6">
-                <svg className="w-6 h-6 text-black dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+              {/* Back */}
+              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-blue-600 dark:bg-blue-900 text-white rounded-3xl p-8 shadow-xl flex flex-col justify-center items-center text-center">
+                <span className="text-xs font-bold text-blue-200 uppercase tracking-widest absolute top-6">Answer</span>
+                <p className="text-3xl font-bold">Streptococcus pneumoniae</p>
               </div>
-              <h3 className="text-2xl font-medium text-black dark:text-white">Cloud Synced Notes</h3>
-              <p className="text-gray-600 dark:text-gray-400 leading-relaxed text-lg">Your entire chat history and saved PDF study notes are persistently synced to the cloud across all your devices.</p>
             </div>
           </div>
         </section>
@@ -283,28 +333,60 @@ export default function Auth() {
 
         {/* Pricing */}
         <section id="pricing" className="bg-gray-50 dark:bg-[#0f0f0f] py-32 border-y border-gray-200 dark:border-white/5 text-center transition-colors duration-300">
-          <div className="max-w-3xl mx-auto px-6">
+          <div className="max-w-5xl mx-auto px-6">
             <h2 className="text-4xl font-semibold mb-6 text-black dark:text-white">Simple, transparent pricing.</h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400 mb-12">Unlock the full power of your medical library.</p>
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-16">Start with a 14-day free trial. Cancel anytime.</p>
             
-            <div className="bg-white dark:bg-black border border-gray-200 dark:border-white/10 rounded-3xl p-10 max-w-md mx-auto text-left shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 bg-black text-white dark:bg-white dark:text-black text-xs font-bold px-3 py-1 rounded-bl-lg">POPULAR</div>
-              <h3 className="text-2xl font-medium mb-2 text-black dark:text-white">Pro Subscription</h3>
-              <div className="flex items-end gap-2 mb-8">
-                <span className="text-5xl font-semibold text-black dark:text-white">₹1,000</span>
-                <span className="text-gray-500 dark:text-gray-400 mb-1">/ month</span>
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              {/* Basic Tier */}
+              <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-3xl p-10 text-left shadow-sm hover:shadow-xl transition-shadow flex flex-col justify-between">
+                <div>
+                  <h3 className="text-2xl font-medium mb-2 text-black dark:text-white">Basic</h3>
+                  <div className="flex items-end gap-2 mb-8">
+                    <span className="text-5xl font-semibold text-black dark:text-white">₹599</span>
+                    <span className="text-gray-500 dark:text-gray-400 mb-1">/ month</span>
+                  </div>
+                  <ul className="space-y-4 mb-10 text-gray-700 dark:text-gray-300">
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 100 RAG Queries / month</li>
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Flashcard Generator</li>
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Voice Dictation</li>
+                  </ul>
+                </div>
+                <button onClick={() => openModal(true)} className="w-full bg-gray-100 dark:bg-[#2f2f2f] text-black dark:text-white hover:bg-gray-200 dark:hover:bg-[#3f3f3f] font-medium py-3 rounded-xl transition-colors border border-gray-200 dark:border-white/10">
+                  Start 14-Day Free Trial
+                </button>
               </div>
-              <ul className="space-y-4 mb-10 text-gray-700 dark:text-gray-300">
-                <li className="flex items-center gap-3"><svg className="w-5 h-5 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Unlimited RAG Queries</li>
-                <li className="flex items-center gap-3"><svg className="w-5 h-5 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Unlimited MCQ Generation</li>
-                <li className="flex items-center gap-3"><svg className="w-5 h-5 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Persistent Cloud History</li>
-                <li className="flex items-center gap-3"><svg className="w-5 h-5 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Priority Access to Gemini Flash</li>
-              </ul>
-              <button onClick={() => openModal(true)} className="w-full bg-black text-white dark:bg-white dark:text-black font-medium py-3 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors">
-                Get Started
-              </button>
+
+              {/* Pro Tier */}
+              <div className="bg-black dark:bg-[#1e1e1e] border border-gray-800 dark:border-white/20 rounded-3xl p-10 text-left shadow-2xl relative overflow-hidden transform md:-translate-y-4 flex flex-col justify-between">
+                <div className="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">POPULAR</div>
+                <div>
+                  <h3 className="text-2xl font-medium mb-2 text-white">Pro</h3>
+                  <div className="flex items-end gap-2 mb-8">
+                    <span className="text-5xl font-semibold text-white">₹999</span>
+                    <span className="text-gray-400 mb-1">/ month</span>
+                  </div>
+                  <ul className="space-y-4 mb-10 text-gray-300">
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 1000 RAG Queries / month</li>
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Custom PDF Uploads</li>
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Student Analytics Dashboard</li>
+                    <li className="flex items-center gap-3"><svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Priority Support</li>
+                  </ul>
+                </div>
+                <button onClick={() => openModal(true)} className="w-full bg-white text-black hover:bg-gray-200 font-medium py-3 rounded-xl transition-colors">
+                  Start 14-Day Free Trial
+                </button>
+              </div>
             </div>
           </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="py-32 px-6 max-w-4xl mx-auto text-center">
+          <h2 className="text-5xl font-semibold mb-8 text-black dark:text-white">Ready to study smarter?</h2>
+          <button onClick={() => openModal(true)} className="bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200 px-10 py-5 rounded-full font-bold transition-colors text-xl shadow-lg">
+            Create your account
+          </button>
         </section>
         
       </main>
