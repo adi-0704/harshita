@@ -663,7 +663,6 @@ function App() {
           <div className="text-center mt-3 text-xs text-gray-500">
             MedAI can make mistakes. Consider verifying important clinical information.
           </div>
-          </div>
         </div>
       </div>
       </>
