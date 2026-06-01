@@ -138,7 +138,7 @@ Format them EXACTLY like this on new lines at the end of the text:
 ---SUGGESTIONS---
 [Suggestion 1]
 [Suggestion 2]
-[Suggestion 3]"""
+[Suggestion 3]
 
 {history_text}
 Context:
