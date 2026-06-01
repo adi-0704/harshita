@@ -58,7 +58,13 @@ import random
 @app.post("/query")
 def query_knowledge_base(request: QueryRequest):
     api_keys, supabase_url, supabase_key = get_env_vars()
-    random.shuffle(api_keys)
+    
+    # Use dedicated chat API key if provided to avoid ingestion limits
+    chat_key = os.getenv("CHAT_GEMINI_API_KEY")
+    if chat_key:
+        api_keys = [chat_key]
+    else:
+        random.shuffle(api_keys)
     
     last_error = None
     
