@@ -92,23 +92,21 @@ def query_knowledge_base(request: QueryRequest):
                 
             all_docs = docs_global + docs_user
             
-            if not all_docs:
-                return {"summary": "No relevant information found in the database or your uploaded documents.", "sources": [], "suggestions": []}
-                
             # Format context
             context_parts = []
             sources_list = []
-            for doc in all_docs:
-                meta = doc.get("metadata", {})
-                source = meta.get('source_book', 'Unknown Source')
-                content = doc.get("content", "")
-                context_parts.append(f"[Source: {source}]\n{content}")
-                sources_list.append({
-                    "content": content,
-                    "source_book": source
-                })
+            if all_docs:
+                for doc in all_docs:
+                    meta = doc.get("metadata", {})
+                    source = meta.get('source_book', 'Unknown Source')
+                    content = doc.get("content", "")
+                    context_parts.append(f"[Source: {source}]\n{content}")
+                    sources_list.append({
+                        "content": content,
+                        "source_book": source
+                    })
                 
-            context = "\n\n".join(context_parts)
+            context = "\n\n".join(context_parts) if context_parts else "No specific context found. If the user is just greeting you, say hello back and offer to help them study!"
             
             history_text = ""
             if request.history:
@@ -121,26 +119,26 @@ def query_knowledge_base(request: QueryRequest):
             
             llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
             
-            prompt = f"""You are an expert medical AI assistant designed to generate high-quality, easy-to-study exam notes.
+            prompt = f"""You are an expert medical AI assistant designed to generate high-quality, easy-to-study exam notes, and act as a friendly tutor.
 Use the following pieces of retrieved context from medical textbooks and user uploads to answer the question.
 
-CRITICAL INSTRUCTIONS FOR CHATGPT-STYLE EXAM NOTES:
-1. Act like a highly helpful study buddy. Your goal is to generate clean, structured, and highly readable exam notes.
-2. Use clear, bold headings to organize the information logically.
-3. Use concise bullet points for everything. Avoid big, overwhelming walls of text.
-4. Bold the most important keywords and high-yield concepts so they are easy to scan and memorize.
-5. Keep the language simple and easy to understand.
-6. If applicable, draw text-based flowcharts using characters (e.g., `├──` and `└──`) for pathogenesis or classifications.
-7. Do NOT append source citations or filenames in the text.
-8. If the answer is not in the context, state clearly that you don't know based on the provided text.
+CRITICAL INSTRUCTIONS:
+1. If the user is just saying hello, "hey", or greeting you, warmly greet them back and ask how you can help them with their medical studies today! DO NOT generate exam notes for a simple greeting.
+2. If it is a medical question, act like a highly helpful study buddy. Your goal is to generate clean, structured, and highly readable exam notes.
+3. Use clear, bold headings to organize the information logically.
+4. Use concise bullet points for everything. Avoid big, overwhelming walls of text.
+5. Bold the most important keywords and high-yield concepts so they are easy to scan and memorize.
+6. Keep the language simple and easy to understand.
+7. If applicable, draw text-based flowcharts using characters (e.g., `├──` and `└──`) for pathogenesis or classifications.
+8. If the retrieved context does not contain the answer, you SHOULD STILL ANSWER the question using your own general medical knowledge, but briefly mention that you are relying on general knowledge outside the textbooks.
 9. Answer the user's latest Question, keeping in mind the Previous Conversation history if provided.
 
 At the very end of your response, you MUST provide 3 suggested follow-up questions that the user could ask next to deepen their understanding. 
 Format them EXACTLY like this on new lines at the end of the text:
 ---SUGGESTIONS---
-1. [Question 1]
-2. [Question 2]
-3. [Question 3]
+[Suggestion 1]
+[Suggestion 2]
+[Suggestion 3]"""
 
 {history_text}
 Context:
