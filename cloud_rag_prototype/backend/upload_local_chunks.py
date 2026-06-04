@@ -66,7 +66,7 @@ def upload_local_chunks(json_file: str):
     vectorstores = []
     for key in api_keys:
         # We need the API to generate embeddings (vectors)
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=key)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=key, output_dimensionality=768)
         vs = SupabaseVectorStore(
             client=supabase_client,
             embedding=embeddings,

@@ -71,7 +71,7 @@ def query_knowledge_base(request: QueryRequest):
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
             
             # Embed the query once
             query_embedding = embeddings.embed_query(request.query)
@@ -182,7 +182,7 @@ def generate_mcq(request: MCQRequest):
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
             
             vectorstore = SupabaseVectorStore(
                 client=supabase,
@@ -266,7 +266,7 @@ async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
         api_keys, supabase_url, supabase_key = get_env_vars()
         api_key = random.choice(api_keys)
         supabase: Client = create_client(supabase_url, supabase_key)
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
         
         embedded_chunks = embeddings.embed_documents(chunks)
         records = []
