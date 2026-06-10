@@ -53,6 +53,17 @@ def get_env_vars():
         
     return api_keys, supabase_url, supabase_key
 
+def invoke_llm_with_fallback(prompt: str, api_key: str):
+    try:
+        # Try the preferred model (gemini-2.5-flash) first
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+        return llm.invoke(prompt)
+    except Exception as e:
+        # Fall back to gemini-2.0-flash if gemini-2.5-flash is overloaded (e.g. 503) or fails
+        print(f"gemini-2.5-flash failed ({e}). Falling back to gemini-2.0-flash...")
+        llm_fallback = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=api_key)
+        return llm_fallback.invoke(prompt)
+
 import random
 
 @app.post("/query")
@@ -71,7 +82,7 @@ def query_knowledge_base(request: QueryRequest):
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
             
             # Embed the query once
             query_embedding = embeddings.embed_query(request.query)
@@ -117,8 +128,6 @@ def query_knowledge_base(request: QueryRequest):
                     history_text += f"{role.capitalize()}: {content}\n"
                 history_text += "\n"
             
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
-            
             prompt = f"""You are an expert medical AI assistant designed to generate high-quality, easy-to-study exam notes, and act as a friendly tutor.
 Use the following pieces of retrieved context from medical textbooks and user uploads to answer the question.
 
@@ -146,7 +155,7 @@ Context:
 
 Question: {request.query}"""
             
-            response = llm.invoke(prompt)
+            response = invoke_llm_with_fallback(prompt, api_key)
             raw_content = response.content
             
             # Parse out suggestions
@@ -182,7 +191,7 @@ def generate_mcq(request: MCQRequest):
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
             
             vectorstore = SupabaseVectorStore(
                 client=supabase,
@@ -199,8 +208,6 @@ def generate_mcq(request: MCQRequest):
                 
             context = "\n\n".join(context_parts)
             
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
-            
             prompt = f"""You are a medical examiner. Generate exactly 5 multiple-choice questions (MCQs) based strictly on the following context.
 The questions should test high-yield concepts from the provided topic. Provide exactly 4 options for each question. 
 You MUST return your answer as a raw JSON array of 5 objects. Each object must have the following exact keys: "question" (string), "options" (array of 4 strings), "correct_index" (integer 0-3), and "explanation" (string).
@@ -212,7 +219,7 @@ Additional context summary: {request.context_summary}
 Context:
 {context}"""
             
-            response = llm.invoke(prompt)
+            response = invoke_llm_with_fallback(prompt, api_key)
             
             raw_text = response.content.strip()
             if raw_text.startswith("```json"):
@@ -266,7 +273,7 @@ async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
         api_keys, supabase_url, supabase_key = get_env_vars()
         api_key = random.choice(api_keys)
         supabase: Client = create_client(supabase_url, supabase_key)
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key, output_dimensionality=768)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
         
         embedded_chunks = embeddings.embed_documents(chunks)
         records = []
@@ -294,7 +301,6 @@ def generate_flashcards(request: FlashcardRequest):
     
     for api_key in api_keys:
         try:
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
             prompt = f"""You are a medical study assistant. Your goal is to convert the following medical notes into high-yield Anki-style flashcards.
 Extract 3 to 5 key facts from the text and create Question/Answer pairs.
 
@@ -303,7 +309,7 @@ Respond strictly with a JSON array of objects, with no markdown formatting aroun
 Text:
 {request.text}
 """
-            response = llm.invoke(prompt)
+            response = invoke_llm_with_fallback(prompt, api_key)
             raw_text = response.content.strip()
             if raw_text.startswith("```json"):
                 raw_text = raw_text[7:-3].strip()
