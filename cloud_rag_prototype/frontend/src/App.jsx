@@ -401,20 +401,35 @@ function App() {
         </div>
       `;
 
-      // Create a temporary hidden div, render, and download
+      // Create a temp div that is VISIBLE to html2canvas but invisible to user.
+      // html2canvas cannot capture elements at off-screen positions (-9999px).
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = pdfContent;
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.top = '-9999px';
+      // Position fixed at top-left, same size as A4 page, but fully transparent
+      tempDiv.style.cssText = [
+        'position: fixed',
+        'top: 0',
+        'left: 0',
+        'width: 794px',        // ~A4 width in px at 96dpi
+        'min-height: 1123px',  // ~A4 height in px at 96dpi
+        'padding: 48px 56px',
+        'background: #ffffff',
+        'opacity: 0',
+        'pointer-events: none',
+        'z-index: -1',
+        'overflow: visible',
+      ].join('; ');
       document.body.appendChild(tempDiv);
+
+      // Give the browser one frame to lay out the element before capturing
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 100)));
 
       const filename = `MedAI_${safeTitle.replace(/[^a-z0-9]/gi, '_').substring(0, 40)}.pdf`;
       const opt = {
         margin: [0.6, 0.7, 0.6, 0.7],
         filename,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
         jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
       };
 
