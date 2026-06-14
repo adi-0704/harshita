@@ -20,7 +20,8 @@ export default function Dashboard({ session, totalCorrect, totalQuestions, saved
 
       const { count: msgsCount } = await supabase
         .from('chat_history').select('*', { count: 'exact', head: true })
-        .eq('user_id', session.user.id);
+        .eq('user_id', session.user.id)
+        .eq('role', 'user');
 
       const { count: flashCount } = await supabase
         .from('flashcards').select('*', { count: 'exact', head: true })

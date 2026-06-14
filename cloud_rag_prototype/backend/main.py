@@ -53,6 +53,17 @@ def get_env_vars():
         
     return api_keys, supabase_url, supabase_key
 
+def get_ordered_api_keys():
+    api_keys, supabase_url, supabase_key = get_env_vars()
+    chat_key = os.getenv("CHAT_GEMINI_API_KEY")
+    if chat_key:
+        fallback_keys = [k for k in api_keys if k != chat_key]
+        random.shuffle(fallback_keys)
+        return [chat_key] + fallback_keys, supabase_url, supabase_key
+    else:
+        random.shuffle(api_keys)
+        return api_keys, supabase_url, supabase_key
+
 def invoke_llm_with_fallback(prompt: str, api_key: str):
     try:
         # gemini-2.0-flash: fast (~3-5s), no thinking overhead — primary model
@@ -60,6 +71,7 @@ def invoke_llm_with_fallback(prompt: str, api_key: str):
             model="gemini-2.0-flash",
             google_api_key=api_key,
             temperature=0.3,
+            max_retries=0,
         )
         return llm.invoke(prompt)
     except Exception as e:
@@ -70,33 +82,36 @@ def invoke_llm_with_fallback(prompt: str, api_key: str):
                 model="gemini-2.5-flash",
                 google_api_key=api_key,
                 temperature=0.3,
+                max_retries=0,
                 model_kwargs={"thinking_config": {"thinking_budget": 0}},
             )
             return llm_fallback.invoke(prompt)
         except Exception as e2:
             print(f"gemini-2.5-flash also failed ({e2}). Falling back to gemini-1.5-flash...")
-            llm_last = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
+            llm_last = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash", 
+                google_api_key=api_key,
+                max_retries=0,
+            )
             return llm_last.invoke(prompt)
 
 import random
 
 @app.post("/query")
 def query_knowledge_base(request: QueryRequest):
-    api_keys, supabase_url, supabase_key = get_env_vars()
-    
-    # Use dedicated chat API key if provided to avoid ingestion limits
-    chat_key = os.getenv("CHAT_GEMINI_API_KEY")
-    if chat_key:
-        api_keys = [chat_key]
-    else:
-        random.shuffle(api_keys)
+    api_keys, supabase_url, supabase_key = get_ordered_api_keys()
     
     last_error = None
     
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-2", 
+                google_api_key=api_key, 
+                output_dimensionality=768,
+                max_retries=0
+            )
             
             # Embed the query once
             query_embedding = embeddings.embed_query(request.query)
@@ -197,15 +212,19 @@ Question: {request.query}"""
 
 @app.post("/generate_mcq")
 def generate_mcq(request: MCQRequest):
-    api_keys, supabase_url, supabase_key = get_env_vars()
-    random.shuffle(api_keys)
+    api_keys, supabase_url, supabase_key = get_ordered_api_keys()
     
     last_error = None
     
     for api_key in api_keys:
         try:
             supabase: Client = create_client(supabase_url, supabase_key)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-2", 
+                google_api_key=api_key, 
+                output_dimensionality=768,
+                max_retries=0
+            )
             
             vectorstore = SupabaseVectorStore(
                 client=supabase,
@@ -284,12 +303,29 @@ async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_text(text)
         
-        api_keys, supabase_url, supabase_key = get_env_vars()
-        api_key = random.choice(api_keys)
+        api_keys, supabase_url, supabase_key = get_ordered_api_keys()
         supabase: Client = create_client(supabase_url, supabase_key)
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key, output_dimensionality=768)
         
-        embedded_chunks = embeddings.embed_documents(chunks)
+        embedded_chunks = None
+        last_error = None
+        for api_key in api_keys:
+            try:
+                embeddings = GoogleGenerativeAIEmbeddings(
+                    model="models/gemini-embedding-2", 
+                    google_api_key=api_key, 
+                    output_dimensionality=768,
+                    max_retries=0
+                )
+                embedded_chunks = embeddings.embed_documents(chunks)
+                break
+            except Exception as e:
+                last_error = str(e)
+                print(f"Embedding failed with key {api_key[:10]}...: {last_error}. Retrying with next key...")
+                continue
+                
+        if not embedded_chunks:
+            raise HTTPException(status_code=500, detail=f"All API keys failed for embedding during PDF upload. Last error: {last_error}")
+            
         records = []
         for i, chunk in enumerate(chunks):
             records.append({
@@ -309,8 +345,7 @@ async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
 
 @app.post("/generate_flashcards")
 def generate_flashcards(request: FlashcardRequest):
-    api_keys, supabase_url, supabase_key = get_env_vars()
-    random.shuffle(api_keys)
+    api_keys, supabase_url, supabase_key = get_ordered_api_keys()
     last_error = None
     
     for api_key in api_keys:
