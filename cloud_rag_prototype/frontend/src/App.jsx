@@ -351,7 +351,6 @@ function App() {
   const downloadChatAsPDF = async (sessionId, sessionTitle) => {
     setDownloadingSessionId(sessionId);
     try {
-      // Fetch the full chat history for this session
       const { data, error } = await supabase
         .from('chat_history')
         .select('*')
@@ -361,130 +360,391 @@ function App() {
       if (error || !data) throw new Error('Failed to load chat history');
       if (data.length === 0) throw new Error('No messages found in this chat');
 
-      const safeTitle = (sessionTitle || 'MedAI Chat').substring(0, 60);
+      const safeTitle = (sessionTitle || 'MedAI Chat').substring(0, 80);
       const dateStr = new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
 
-      // Use jsPDF text API directly — no html2canvas, no DOM rendering, always works
+      // ── jsPDF setup ──────────────────────────────────────────────────────────
       const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
-      const pageWidth = doc.internal.pageSize.getWidth();   // 595.28 pt
-      const pageHeight = doc.internal.pageSize.getHeight(); // 841.89 pt
-      const marginLeft = 50;
-      const marginRight = 50;
-      const marginTop = 60;
-      const marginBottom = 60;
-      const usableWidth = pageWidth - marginLeft - marginRight; // ~495 pt
-      let y = marginTop;
+      const PW  = doc.internal.pageSize.getWidth();   // 595.28
+      const PH  = doc.internal.pageSize.getHeight();  // 841.89
+      const ML  = 54, MR = 54, MT = 56, MB = 52;
+      const UW  = PW - ML - MR;   // usable text width ~487 pt
+      let   y   = MT;
 
-      // ── Helper: wrap + print text, auto-page-break ─────────────────────────
-      const printText = (text, fontSize, color, bold, indent = 0) => {
+      // Palette
+      const C = {
+        blue:      [29, 78, 216],
+        blueSoft:  [239, 246, 255],
+        teal:      [5, 150, 105],
+        tealSoft:  [236, 253, 245],
+        indigo:    [67, 56, 202],
+        amber:     [180, 83, 9],
+        ink:       [15, 23, 42],
+        inkMid:    [51, 65, 85],
+        inkLight:  [100, 116, 139],
+        border:    [203, 213, 225],
+        divider:   [226, 232, 240],
+        white:     [255, 255, 255],
+        pageBar:   [15, 23, 42],
+      };
+
+      // ── Core helpers ─────────────────────────────────────────────────────────
+      const needsPage = (space) => {
+        if (y + space > PH - MB) { doc.addPage(); y = MT; return true; }
+        return false;
+      };
+      const gap = (pts) => { y += pts; needsPage(0); };
+
+      // Print wrapped text with auto page-break; returns nothing, mutates y
+      const printWrapped = (text, fontSize, colorArr, fontStyle, indent = 0, lineH = null) => {
+        if (!text || !text.trim()) return;
         doc.setFontSize(fontSize);
-        doc.setTextColor(...color);
-        doc.setFont('helvetica', bold ? 'bold' : 'normal');
-        const lines = doc.splitTextToSize(String(text || ''), usableWidth - indent);
+        doc.setTextColor(...colorArr);
+        doc.setFont('helvetica', fontStyle);
+        const maxW = UW - indent;
+        const lines = doc.splitTextToSize(String(text), maxW);
+        const lh = lineH || fontSize * 1.5;
         lines.forEach(line => {
-          if (y + fontSize + 4 > pageHeight - marginBottom) {
-            doc.addPage();
-            y = marginTop;
-          }
-          doc.text(line, marginLeft + indent, y);
-          y += fontSize * 1.45;
+          needsPage(lh + 4);
+          doc.text(line, ML + indent, y);
+          y += lh;
         });
       };
 
-      const addSpacing = (pts) => {
-        y += pts;
-        if (y > pageHeight - marginBottom) { doc.addPage(); y = marginTop; }
+      // Draw filled rect (safe – no page split needed for decorative rects)
+      const fillRect = (rx, ry, rw, rh, colorArr) => {
+        doc.setFillColor(...colorArr);
+        doc.rect(rx, ry, rw, rh, 'F');
       };
 
-      // ── Header ─────────────────────────────────────────────────────────────
-      // Blue top bar
-      doc.setFillColor(29, 78, 216);
-      doc.rect(0, 0, pageWidth, 8, 'F');
+      // ── Inline-bold strip: keep structure, remove ** markers ─────────────────
+      const stripInline = (s) => (s || '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/`(.*?)`/g, '$1');
 
-      y = 40;
-      printText('MedAI RAG', 22, [29, 78, 216], true);
-      addSpacing(4);
-      printText(safeTitle, 14, [17, 24, 39], true);
-      addSpacing(2);
-      printText(`Downloaded on ${dateStr}  •  ${data.length} messages`, 9, [107, 114, 128], false);
-      addSpacing(8);
+      // ── Determine if a line is bold (has **..** wrapping most of content) ─────
+      const hasBold = (s) => /\*\*/.test(s);
 
-      // Divider line
-      doc.setDrawColor(209, 213, 219);
+      // ── Markdown-aware line renderer for AI answers ──────────────────────────
+      const renderMarkdownContent = (content) => {
+        const rawLines = content.split('\n');
+        let i = 0;
+        while (i < rawLines.length) {
+          const raw = rawLines[i];
+          const trimmed = raw.trim();
+          i++;
+
+          // Blank line → small gap
+          if (!trimmed) { gap(5); continue; }
+
+          // Horizontal rule
+          if (/^---+$/.test(trimmed) || /^\*\*\*+$/.test(trimmed)) {
+            gap(8);
+            doc.setDrawColor(...C.border);
+            doc.setLineWidth(0.5);
+            needsPage(12);
+            doc.line(ML, y, PW - MR, y);
+            gap(10);
+            continue;
+          }
+
+          // H1  →  Large section title with blue background pill
+          if (/^# /.test(trimmed)) {
+            const text = stripInline(trimmed.replace(/^# /, ''));
+            gap(14);
+            needsPage(34);
+            fillRect(ML, y - 14, UW, 22, C.blueSoft);
+            doc.setDrawColor(...C.blue);
+            doc.setLineWidth(0.6);
+            doc.rect(ML, y - 14, UW, 22, 'S');
+            // left accent
+            fillRect(ML, y - 14, 4, 22, C.blue);
+            doc.setFontSize(13);
+            doc.setTextColor(...C.blue);
+            doc.setFont('helvetica', 'bold');
+            doc.text(text, ML + 10, y + 3);
+            y += 14;
+            gap(6);
+            continue;
+          }
+
+          // H2  →  Section header with colored left bar + bottom underline
+          if (/^## /.test(trimmed)) {
+            const text = stripInline(trimmed.replace(/^## /, ''));
+            gap(12);
+            needsPage(28);
+            fillRect(ML, y - 11, 3.5, 18, C.teal);
+            doc.setFontSize(11.5);
+            doc.setTextColor(...C.teal);
+            doc.setFont('helvetica', 'bold');
+            doc.text(text.toUpperCase(), ML + 9, y + 3);
+            y += 10;
+            doc.setDrawColor(...C.teal);
+            doc.setLineWidth(0.4);
+            doc.line(ML + 9, y, ML + 9 + doc.getStringUnitWidth(text.toUpperCase()) * 11.5 / doc.internal.scaleFactor + 4, y);
+            gap(8);
+            continue;
+          }
+
+          // H3  →  Bold amber subsection label
+          if (/^### /.test(trimmed)) {
+            const text = stripInline(trimmed.replace(/^### /, ''));
+            gap(8);
+            needsPage(20);
+            doc.setFontSize(10.5);
+            doc.setTextColor(...C.amber);
+            doc.setFont('helvetica', 'bold');
+            doc.text('▸ ' + text, ML + 4, y);
+            y += 14;
+            gap(2);
+            continue;
+          }
+
+          // H4 / ####
+          if (/^#### /.test(trimmed)) {
+            const text = stripInline(trimmed.replace(/^#### /, ''));
+            gap(6);
+            needsPage(18);
+            doc.setFontSize(10);
+            doc.setTextColor(...C.indigo);
+            doc.setFont('helvetica', 'bold');
+            doc.text(text, ML + 4, y);
+            y += 13;
+            continue;
+          }
+
+          // Sub-bullet (indented):  "   - text" or "    * text"
+          if (/^\s{2,}[-*•]\s/.test(raw)) {
+            const text = stripInline(trimmed.replace(/^[-*•]\s+/, ''));
+            needsPage(14);
+            doc.setFontSize(9.5);
+            doc.setTextColor(...C.inkMid);
+            doc.setFont('helvetica', 'normal');
+            // Small filled circle bullet
+            doc.setFillColor(...C.inkLight);
+            doc.circle(ML + 22, y - 3, 1.5, 'F');
+            const subLines = doc.splitTextToSize(text, UW - 32);
+            subLines.forEach((line, li) => {
+              needsPage(13);
+              doc.text(line, ML + 28, y);
+              y += 13;
+            });
+            continue;
+          }
+
+          // Top-level bullet:  "- text" or "* text" or "• text"
+          if (/^[-*•]\s/.test(trimmed)) {
+            const text = stripInline(trimmed.replace(/^[-*•]\s+/, ''));
+            needsPage(14);
+            // Filled square bullet in teal
+            doc.setFillColor(...C.teal);
+            doc.rect(ML + 8, y - 5.5, 3.5, 3.5, 'F');
+            const bLines = doc.splitTextToSize(text, UW - 20);
+            doc.setFontSize(10);
+            doc.setTextColor(...C.ink);
+            doc.setFont('helvetica', hasBold(trimmed) ? 'bold' : 'normal');
+            bLines.forEach((line, li) => {
+              needsPage(14);
+              doc.text(line, ML + 16, y);
+              y += 14;
+            });
+            continue;
+          }
+
+          // Numbered list:  "1. text"
+          if (/^\d+\.\s/.test(trimmed)) {
+            const num   = trimmed.match(/^(\d+)\./)[1];
+            const text  = stripInline(trimmed.replace(/^\d+\.\s+/, ''));
+            needsPage(14);
+            // Number badge
+            doc.setFillColor(...C.blue);
+            doc.roundedRect(ML + 6, y - 8, 12, 10, 2, 2, 'F');
+            doc.setFontSize(7);
+            doc.setTextColor(...C.white);
+            doc.setFont('helvetica', 'bold');
+            doc.text(num, ML + 12, y - 1, { align: 'center' });
+            // Text
+            const nLines = doc.splitTextToSize(text, UW - 24);
+            doc.setFontSize(10);
+            doc.setTextColor(...C.ink);
+            doc.setFont('helvetica', hasBold(trimmed) ? 'bold' : 'normal');
+            nLines.forEach(line => {
+              needsPage(14);
+              doc.text(line, ML + 22, y);
+              y += 14;
+            });
+            continue;
+          }
+
+          // Plain paragraph — check if line is bold (acts as an inline heading)
+          const isBoldLine = hasBold(trimmed) && trimmed.startsWith('**');
+          const cleanText  = stripInline(trimmed);
+          if (isBoldLine) {
+            gap(4);
+            printWrapped(cleanText, 10.5, C.inkMid, 'bold', 0, 14);
+          } else {
+            printWrapped(cleanText, 10, C.ink, 'normal', 0, 14);
+          }
+        }
+      };
+
+      // ════════════════════════════════════════════════════════════════════════
+      // HEADER — Cover-style header
+      // ════════════════════════════════════════════════════════════════════════
+      fillRect(0, 0, PW, 52, C.pageBar);      // dark banner
+      fillRect(0, 52, PW, 4, C.blue);          // blue accent stripe
+
+      // Logo circle
+      doc.setFillColor(...C.blue);
+      doc.circle(ML + 16, 26, 14, 'F');
+      doc.setFontSize(11);
+      doc.setTextColor(...C.white);
+      doc.setFont('helvetica', 'bold');
+      doc.text('M', ML + 16, 30, { align: 'center' });
+
+      // Title + subtitle in banner
+      doc.setFontSize(16);
+      doc.setTextColor(...C.white);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MedAI RAG', ML + 36, 23);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text('AI-Powered Medical Study Notes', ML + 36, 36);
+
+      // Date + count (right-aligned)
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`${dateStr}  •  ${data.length} messages`, PW - MR, 30, { align: 'right' });
+
+      y = 70;
+
+      // Session title block
+      needsPage(50);
+      fillRect(ML, y, UW, 38, C.blueSoft);
+      fillRect(ML, y, 5, 38, C.blue);
+      doc.setFontSize(14);
+      doc.setTextColor(...C.blue);
+      doc.setFont('helvetica', 'bold');
+      const titleLines = doc.splitTextToSize(safeTitle, UW - 20);
+      titleLines.forEach((tl, ti) => {
+        doc.text(tl, ML + 12, y + 15 + ti * 16);
+      });
+      y += 38 + titleLines.length * (titleLines.length > 1 ? 6 : 0) + 6;
+
+      doc.setFontSize(8);
+      doc.setTextColor(...C.inkLight);
+      doc.setFont('helvetica', 'italic');
+      doc.text('For educational purposes only — verify all clinical information with authoritative sources.', ML, y);
+      y += 18;
+
+      doc.setDrawColor(...C.divider);
       doc.setLineWidth(0.5);
-      doc.line(marginLeft, y, pageWidth - marginRight, y);
-      addSpacing(16);
+      doc.line(ML, y, PW - MR, y);
+      y += 18;
 
-      // ── Messages ───────────────────────────────────────────────────────────
-      // NOTE: We render line-by-line using printText (which handles page breaks).
-      // Pre-calculating a fixed boxHeight and drawing one big rect fails for long
-      // AI responses that span multiple pages — the rect gets clipped and all the
-      // text after the first page disappears. Instead we use a left colored bar.
+      // ════════════════════════════════════════════════════════════════════════
+      // MESSAGES — Render each Q&A pair
+      // ════════════════════════════════════════════════════════════════════════
+      let qNum = 0;
+
       data.forEach((msg, idx) => {
         const isUser = msg.role === 'user';
-        const roleLabel = isUser ? 'YOU' : 'MEDAI RAG';
-        const roleColor = isUser ? [29, 78, 216] : [5, 150, 105];
-        const accentColor = isUser ? [29, 78, 216] : [5, 150, 105];
 
-        // Clean markdown: strip bold/italic markers, heading markers, bullet markers
-        const rawContent = (msg.content || '')
-          .replace(/\*\*(.*?)\*\*/g, '$1')
-          .replace(/\*(.*?)\*/g, '$1')
-          .replace(/^#{1,6}\s+/gm, '')
-          .replace(/^[-*]\s+/gm, '• ');
+        if (isUser) {
+          // ── User question: numbered, styled box ─────────────────────────────
+          qNum++;
+          const qText = stripInline(msg.content || '');
+          needsPage(46);
 
-        // Role label (colored, bold, small caps feel)
-        // Make sure there's space for at least the label + a couple lines
-        if (y + 40 > pageHeight - marginBottom) {
-          doc.addPage();
-          y = marginTop;
-        }
+          const qLines = doc.splitTextToSize(qText, UW - 28);
+          const qBoxH  = Math.max(36, 14 + qLines.length * 14 + 10);
+          needsPage(qBoxH + 8);
 
-        // Draw a 3pt left accent bar for the role label row
-        doc.setFillColor(...accentColor);
-        doc.rect(marginLeft, y - 9, 3, 12, 'F');
+          fillRect(ML, y, UW, qBoxH, C.blueSoft);
+          doc.setDrawColor(...C.blue);
+          doc.setLineWidth(0.5);
+          doc.rect(ML, y, UW, qBoxH, 'S');
+          fillRect(ML, y, 5, qBoxH, C.blue);
 
-        doc.setFontSize(8);
-        doc.setTextColor(...roleColor);
-        doc.setFont('helvetica', 'bold');
-        doc.text(roleLabel, marginLeft + 8, y);
-        y += 5;
+          // Q label
+          doc.setFillColor(...C.blue);
+          doc.roundedRect(ML + 10, y + 6, 22, 12, 2, 2, 'F');
+          doc.setFontSize(7.5);
+          doc.setTextColor(...C.white);
+          doc.setFont('helvetica', 'bold');
+          doc.text(`Q${qNum}`, ML + 21, y + 14, { align: 'center' });
 
-        // Thin separator under role label
-        doc.setDrawColor(...accentColor);
-        doc.setLineWidth(0.3);
-        doc.line(marginLeft + 8, y, marginLeft + 60, y);
-        y += 10;
+          // Question text
+          doc.setFontSize(10.5);
+          doc.setTextColor(...C.blue);
+          doc.setFont('helvetica', 'bold');
+          qLines.forEach((ql, qi) => {
+            doc.text(ql, ML + 36, y + 14 + qi * 14);
+          });
+          y += qBoxH + 10;
 
-        // Message content — line by line with auto page-break
-        printText(rawContent, 10, [17, 24, 39], false, 8);
+        } else {
+          // ── AI Answer: markdown rendered as professional notes ──────────────
+          needsPage(30);
+          // "Answer" label row
+          fillRect(ML, y, UW, 18, [248, 250, 252]);
+          doc.setDrawColor(...C.divider);
+          doc.setLineWidth(0.4);
+          doc.rect(ML, y, UW, 18, 'S');
+          fillRect(ML, y, 4, 18, C.teal);
 
-        addSpacing(16); // gap between messages
+          doc.setFontSize(7.5);
+          doc.setTextColor(...C.teal);
+          doc.setFont('helvetica', 'bold');
+          doc.text('MEDAI RAG  —  ANSWER', ML + 10, y + 11);
 
-        // Light separator line between messages (not after last)
-        if (idx < data.length - 1) {
-          doc.setDrawColor(229, 231, 235);
-          doc.setLineWidth(0.3);
-          doc.line(marginLeft, y, pageWidth - marginRight, y);
-          addSpacing(16);
+          // Right-side small note
+          doc.setFontSize(7);
+          doc.setTextColor(...C.inkLight);
+          doc.setFont('helvetica', 'normal');
+          doc.text('AI-generated. Verify independently.', PW - MR, y + 11, { align: 'right' });
+          y += 24;
+
+          // Render the markdown content
+          renderMarkdownContent(msg.content || '');
+
+          y += 8;
+          // Separator after answer (not after last)
+          if (idx < data.length - 1) {
+            needsPage(24);
+            doc.setDrawColor(...C.divider);
+            doc.setLineWidth(1);
+            doc.line(ML, y, PW - MR, y);
+            y += 20;
+          }
         }
       });
 
-      // ── Footer ─────────────────────────────────────────────────────────────
-      addSpacing(10);
-      doc.setDrawColor(209, 213, 219);
-      doc.line(marginLeft, y, pageWidth - marginRight, y);
-      addSpacing(8);
-      printText('Generated by MedAI RAG  •  For educational purposes only. Verify clinical information independently.', 8, [156, 163, 175], false);
+      // ── Footer ───────────────────────────────────────────────────────────────
+      gap(12);
+      needsPage(28);
+      fillRect(0, PH - 36, PW, 36, C.pageBar);
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Generated by MedAI RAG  •  For educational purposes only.', ML, PH - 20);
 
-      // Add page numbers
+      // Page numbers on every page
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(156, 163, 175);
+        // Top bar on non-first pages
+        if (i > 1) {
+          fillRect(0, 0, PW, 6, C.blue);
+          doc.setFontSize(7);
+          doc.setTextColor(...C.inkLight);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`MedAI RAG  •  ${safeTitle}`, ML, 17);
+        }
+        // Bottom page number
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+        doc.text(`Page ${i} of ${totalPages}`, PW - MR, PH - 20, { align: 'right' });
       }
 
       const filename = `MedAI_${safeTitle.replace(/[^a-z0-9]/gi, '_').substring(0, 40)}.pdf`;
