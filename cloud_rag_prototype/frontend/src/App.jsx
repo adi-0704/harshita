@@ -416,53 +416,58 @@ function App() {
       addSpacing(16);
 
       // ── Messages ───────────────────────────────────────────────────────────
+      // NOTE: We render line-by-line using printText (which handles page breaks).
+      // Pre-calculating a fixed boxHeight and drawing one big rect fails for long
+      // AI responses that span multiple pages — the rect gets clipped and all the
+      // text after the first page disappears. Instead we use a left colored bar.
       data.forEach((msg, idx) => {
         const isUser = msg.role === 'user';
         const roleLabel = isUser ? 'YOU' : 'MEDAI RAG';
         const roleColor = isUser ? [29, 78, 216] : [5, 150, 105];
-        const bgColor = isUser ? [239, 246, 255] : [249, 250, 251];
-        const borderColor = isUser ? [191, 219, 254] : [229, 231, 235];
+        const accentColor = isUser ? [29, 78, 216] : [5, 150, 105];
 
-        // Message box background
-        const boxX = marginLeft;
-        const boxY = y - 2;
-        const rawContent = (msg.content || '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s/gm, '').replace(/^[-*]\s/gm, '• ');
-        const fontSize = 10;
-        doc.setFontSize(fontSize);
-        doc.setFont('helvetica', 'normal');
-        const wrappedLines = doc.splitTextToSize(rawContent, usableWidth - 16);
-        const boxHeight = 18 + wrappedLines.length * (fontSize * 1.45) + 14;
+        // Clean markdown: strip bold/italic markers, heading markers, bullet markers
+        const rawContent = (msg.content || '')
+          .replace(/\*\*(.*?)\*\*/g, '$1')
+          .replace(/\*(.*?)\*/g, '$1')
+          .replace(/^#{1,6}\s+/gm, '')
+          .replace(/^[-*]\s+/gm, '• ');
 
-        // Draw box if it fits on page, else new page
-        if (boxY + boxHeight > pageHeight - marginBottom) {
+        // Role label (colored, bold, small caps feel)
+        // Make sure there's space for at least the label + a couple lines
+        if (y + 40 > pageHeight - marginBottom) {
           doc.addPage();
           y = marginTop;
         }
 
-        doc.setFillColor(...bgColor);
-        doc.setDrawColor(...borderColor);
-        doc.setLineWidth(0.5);
-        doc.roundedRect(boxX, y - 2, usableWidth, boxHeight, 4, 4, 'FD');
+        // Draw a 3pt left accent bar for the role label row
+        doc.setFillColor(...accentColor);
+        doc.rect(marginLeft, y - 9, 3, 12, 'F');
 
-        // Role label
-        y += 10;
         doc.setFontSize(8);
         doc.setTextColor(...roleColor);
         doc.setFont('helvetica', 'bold');
         doc.text(roleLabel, marginLeft + 8, y);
-        y += 14;
+        y += 5;
 
-        // Message content
-        doc.setFontSize(10);
-        doc.setTextColor(17, 24, 39);
-        doc.setFont('helvetica', 'normal');
-        wrappedLines.forEach(line => {
-          doc.text(line, marginLeft + 8, y);
-          y += 10 * 1.45;
-        });
+        // Thin separator under role label
+        doc.setDrawColor(...accentColor);
+        doc.setLineWidth(0.3);
+        doc.line(marginLeft + 8, y, marginLeft + 60, y);
+        y += 10;
 
-        y += 14; // bottom padding inside box
-        addSpacing(10); // gap between messages
+        // Message content — line by line with auto page-break
+        printText(rawContent, 10, [17, 24, 39], false, 8);
+
+        addSpacing(16); // gap between messages
+
+        // Light separator line between messages (not after last)
+        if (idx < data.length - 1) {
+          doc.setDrawColor(229, 231, 235);
+          doc.setLineWidth(0.3);
+          doc.line(marginLeft, y, pageWidth - marginRight, y);
+          addSpacing(16);
+        }
       });
 
       // ── Footer ─────────────────────────────────────────────────────────────
