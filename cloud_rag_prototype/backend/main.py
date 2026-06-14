@@ -55,14 +55,28 @@ def get_env_vars():
 
 def invoke_llm_with_fallback(prompt: str, api_key: str):
     try:
-        # Try the preferred model (gemini-2.5-flash) first
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+        # gemini-2.0-flash: fast (~3-5s), no thinking overhead — primary model
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=api_key,
+            temperature=0.3,
+        )
         return llm.invoke(prompt)
     except Exception as e:
-        # Fall back to gemini-2.0-flash if gemini-2.5-flash is overloaded (e.g. 503) or fails
-        print(f"gemini-2.5-flash failed ({e}). Falling back to gemini-2.0-flash...")
-        llm_fallback = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=api_key)
-        return llm_fallback.invoke(prompt)
+        print(f"gemini-2.0-flash failed ({e}). Falling back to gemini-2.5-flash (no thinking)...")
+        try:
+            # gemini-2.5-flash with thinking disabled for speed
+            llm_fallback = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                google_api_key=api_key,
+                temperature=0.3,
+                model_kwargs={"thinking_config": {"thinking_budget": 0}},
+            )
+            return llm_fallback.invoke(prompt)
+        except Exception as e2:
+            print(f"gemini-2.5-flash also failed ({e2}). Falling back to gemini-1.5-flash...")
+            llm_last = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
+            return llm_last.invoke(prompt)
 
 import random
 

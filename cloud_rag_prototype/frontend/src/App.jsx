@@ -435,6 +435,46 @@ function App() {
           // Blank line → small gap
           if (!trimmed) { gap(5); continue; }
 
+          // ── Code fence (``` block) or Mermaid ───────────────────────────────
+          if (trimmed.startsWith('```')) {
+            const label = trimmed.replace(/^```/, '').trim().toUpperCase() || 'CODE';
+            const codeLines = [];
+            while (i < rawLines.length && !rawLines[i].trim().startsWith('```')) {
+              codeLines.push(rawLines[i]);
+              i++;
+            }
+            if (i < rawLines.length) i++; // skip closing ```
+            const displayLabel = label === 'MERMAID' ? 'FLOWCHART' : (label || 'CODE BLOCK');
+            renderCodeBlock(codeLines, displayLabel);
+            continue;
+          }
+
+          // ── ASCII flowchart lines (contain box-drawing chars) ───────────────
+          if (/[├└│─┌┐┘┤┬┴┼▼▲→←]/.test(trimmed) || /[|+\-]{3,}/.test(trimmed)) {
+            // Collect consecutive flowchart-looking lines
+            const fcLines = [raw];
+            while (i < rawLines.length) {
+              const nextTrimmed = rawLines[i].trim();
+              if (!nextTrimmed || /[├└│─┌┐┘┤┬┴┼▼▲→←]/.test(nextTrimmed) || /^\s*[|+].+[|+]/.test(nextTrimmed)) {
+                fcLines.push(rawLines[i]);
+                i++;
+              } else break;
+            }
+            renderCodeBlock(fcLines, 'FLOWCHART');
+            continue;
+          }
+
+          // ── Markdown TABLE (lines starting with |) ──────────────────────────
+          if (trimmed.startsWith('|')) {
+            const tableLines = [raw];
+            while (i < rawLines.length && rawLines[i].trim().startsWith('|')) {
+              tableLines.push(rawLines[i]);
+              i++;
+            }
+            renderTable(tableLines);
+            continue;
+          }
+
           // Horizontal rule
           if (/^---+$/.test(trimmed) || /^\*\*\*+$/.test(trimmed)) {
             gap(8);
@@ -584,6 +624,118 @@ function App() {
             printWrapped(cleanText, 10, C.ink, 'normal', 0, 14);
           }
         }
+      };
+
+      // ── Markdown TABLE renderer ────────────────────────────────────────────
+      // Collects a block of | … | lines and renders as a real grid table
+      const renderTable = (tableLines) => {
+        if (!tableLines || tableLines.length < 2) return;
+
+        // Parse rows — split on | and clean cells
+        const parseRow = (line) =>
+          line.split('|').map(c => stripInline(c.trim())).filter((c, i, arr) => i > 0 && i < arr.length - 1);
+
+        const rows = tableLines
+          .filter(l => !/^[\s|:-]+$/.test(l.trim())) // skip separator rows
+          .map(l => parseRow(l));
+
+        if (!rows.length) return;
+
+        const colCount  = Math.max(...rows.map(r => r.length));
+        const colW      = UW / colCount;
+        const rowH      = 16;
+        const headerH   = 18;
+
+        gap(10);
+
+        rows.forEach((row, ri) => {
+          const isHeader = ri === 0;
+          const thisH    = isHeader ? headerH : rowH;
+          needsPage(thisH + 4);
+
+          // Row background
+          if (isHeader) {
+            fillRect(ML, y - thisH + 4, UW, thisH, C.blue);
+          } else {
+            fillRect(ML, y - rowH + 4, UW, rowH, ri % 2 === 0 ? [248, 250, 252] : C.white);
+          }
+
+          // Draw cells
+          row.forEach((cell, ci) => {
+            const cellX = ML + ci * colW;
+            // Vertical separator
+            if (ci > 0) {
+              doc.setDrawColor(...C.border);
+              doc.setLineWidth(0.3);
+              doc.line(cellX, y - thisH + 4, cellX, y + 4);
+            }
+            doc.setFontSize(isHeader ? 8 : 9);
+            doc.setTextColor(...(isHeader ? C.white : C.ink));
+            doc.setFont('helvetica', isHeader ? 'bold' : 'normal');
+            const maxCellW = colW - 8;
+            const cellText = doc.splitTextToSize(cell, maxCellW)[0] || ''; // first line only
+            doc.text(cellText, cellX + 4, y + (isHeader ? 1 : 0));
+          });
+
+          // Bottom border of row
+          doc.setDrawColor(...C.border);
+          doc.setLineWidth(0.3);
+          doc.line(ML, y + 4, ML + UW, y + 4);
+
+          y += thisH;
+        });
+
+        // Outer border
+        const tableStartY = y - rows.length * (rowH) - headerH + rowH;
+        doc.setDrawColor(...C.blue);
+        doc.setLineWidth(0.5);
+        doc.rect(ML, tableStartY - 14, UW, rows.length * rowH + headerH, 'S');
+
+        gap(14);
+      };
+
+      // ── Flowchart / Code-block renderer ───────────────────────────────────
+      // Renders ```...``` or lines with box-drawing chars as a styled monospace block
+      const renderCodeBlock = (codeLines, label = 'FLOWCHART') => {
+        if (!codeLines.length) return;
+        gap(10);
+
+        const fontSize   = 8.5;
+        const lineHeight = 12;
+        const padding    = 10;
+        const blockH     = padding + codeLines.length * lineHeight + padding;
+
+        needsPage(blockH + 16);
+
+        // Label badge
+        fillRect(ML, y - 10, 60, 12, C.indigo);
+        doc.setFontSize(7);
+        doc.setTextColor(...C.white);
+        doc.setFont('helvetica', 'bold');
+        doc.text(label, ML + 4, y - 1);
+        y += 4;
+
+        // Dark background block
+        fillRect(ML, y, UW, blockH, [30, 30, 46]);
+        doc.setDrawColor(...C.indigo);
+        doc.setLineWidth(0.5);
+        doc.rect(ML, y, UW, blockH, 'S');
+
+        y += padding + lineHeight;
+        codeLines.forEach(line => {
+          needsPage(lineHeight + 2);
+          doc.setFontSize(fontSize);
+          doc.setTextColor(180, 220, 180); // green-tinted monospace text
+          doc.setFont('courier', 'normal');
+          // Truncate line if too wide
+          const maxW = UW - padding * 2;
+          const parts = doc.splitTextToSize(line || ' ', maxW);
+          doc.text(parts[0] || ' ', ML + padding, y);
+          y += lineHeight;
+        });
+        y += padding - lineHeight; // close out block
+
+        gap(12);
       };
 
       // ════════════════════════════════════════════════════════════════════════
