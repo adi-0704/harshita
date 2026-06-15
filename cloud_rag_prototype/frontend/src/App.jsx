@@ -338,14 +338,38 @@ function App() {
 
   const exportToPDF = (elementId, title) => {
     const element = document.getElementById(elementId);
+    const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
     const opt = {
       margin:       0.5,
-      filename:     `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
+      filename:     filename,
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2 },
       jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
     };
-    html2pdf().set(opt).from(element).save();
+
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+      html2pdf().set(opt).from(element).output('blob').then(async (blob) => {
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: title,
+              text: 'Exported Medical Note'
+            });
+            return;
+          } catch (e) {
+            console.log("Share failed:", e);
+          }
+        }
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (!win) window.location.href = url;
+      });
+    } else {
+      html2pdf().set(opt).from(element).save();
+    }
   }
 
   const downloadChatAsPDF = async (sessionId, sessionTitle) => {
@@ -905,7 +929,33 @@ function App() {
       }
 
       const filename = `MedAI_${safeTitle.replace(/[^a-z0-9]/gi, '_').substring(0, 40)}.pdf`;
-      doc.save(filename);
+      
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) {
+        const blob = doc.output('blob');
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: sessionTitle || 'MedAI Chat Notes',
+              text: 'Download your MedAI chat notes'
+            });
+            return;
+          } catch (shareErr) {
+            console.log("Share failed or cancelled:", shareErr);
+          }
+        }
+        
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (!win) {
+          window.location.href = url;
+        }
+      } else {
+        doc.save(filename);
+      }
     } catch (err) {
       alert('Failed to download PDF: ' + err.message);
     } finally {
