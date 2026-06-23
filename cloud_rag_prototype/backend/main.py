@@ -66,34 +66,27 @@ def get_ordered_api_keys():
 
 def invoke_llm_with_fallback(prompt: str, api_key: str):
     try:
-        # gemini-2.0-flash: fast (~3-5s), no thinking overhead — primary model
+        # gemini-2.5-flash: newest, fast, and primary model
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             google_api_key=api_key,
             temperature=0.3,
             max_retries=0,
         )
         return llm.invoke(prompt)
     except Exception as e:
-        print(f"gemini-2.0-flash failed ({e}). Falling back to gemini-2.5-flash (no thinking)...")
+        print(f"gemini-2.5-flash failed ({e}). Falling back to gemini-2.0-flash...")
         try:
-            # gemini-2.5-flash with thinking disabled for speed
             llm_fallback = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 google_api_key=api_key,
                 temperature=0.3,
                 max_retries=0,
-                model_kwargs={"thinking_config": {"thinking_budget": 0}},
             )
             return llm_fallback.invoke(prompt)
         except Exception as e2:
-            print(f"gemini-2.5-flash also failed ({e2}). Falling back to gemini-1.5-flash...")
-            llm_last = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash", 
-                google_api_key=api_key,
-                max_retries=0,
-            )
-            return llm_last.invoke(prompt)
+            raise RuntimeError(f"Both LLM models failed. gemini-2.5-flash: {e} | gemini-2.0-flash: {e2}")
+
 
 import random
 

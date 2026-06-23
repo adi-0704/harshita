@@ -27,9 +27,9 @@ from supabase.client import Client, create_client
 load_dotenv()
 
 # ── constants ──────────────────────────────────────────────────────────────────
-BATCH_SIZE         = 14     # chunks per embed call
-RPM_LIMIT          = 12     # stay safely under the 15 RPM free-tier cap
-MIN_KEY_INTERVAL   = 60.0 / RPM_LIMIT   # 5s minimum between requests on same key
+BATCH_SIZE         = 4      # chunks per embed call (reduced from 14 to avoid TPM limits)
+RPM_LIMIT          = 6      # stay safely under the 15 RPM free-tier cap (reduced from 12)
+MIN_KEY_INTERVAL   = 60.0 / RPM_LIMIT   # 10s minimum between requests on same key
 RATE_COOLDOWN      = 65     # seconds a key sleeps after a 429 before rejoining
 NETWORK_RETRIES    = 5      # retries for transient network errors
 NETWORK_RETRY_WAIT = 2      # seconds between network retries
@@ -37,16 +37,23 @@ NETWORK_RETRY_WAIT = 2      # seconds between network retries
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def get_env_vars():
-    keys = [os.getenv("GEMINI_API_KEY")]
+    keys = []
+    main_key = os.getenv("GEMINI_API_KEY")
+    if main_key:
+        keys.append(main_key)
     for i in range(1, 10):
         k = os.getenv(f"EXTRA_API_KEY_{i}")
         if k:
             keys.append(k)
+    chat_key = os.getenv("CHAT_GEMINI_API_KEY")
+    if chat_key:
+        keys.append(chat_key)
     url = os.getenv("SUPABASE_URL")
     svc = os.getenv("SUPABASE_SERVICE_KEY")
-    if not all([keys[0], url, svc]):
-        raise ValueError("Missing GEMINI_API_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY")
-    return [k for k in keys if k], url, svc
+    if not all([keys, url, svc]):
+        raise ValueError("Missing API keys / SUPABASE_URL / SUPABASE_SERVICE_KEY")
+    return keys, url, svc
+
 
 
 def embed_batch(api_key: str, texts: list) -> list:
@@ -74,82 +81,85 @@ def embed_batch(api_key: str, texts: list) -> list:
 
 # ── per-key worker ─────────────────────────────────────────────────────────────
 
-def key_worker(
-    key_label: int,
-    api_key: str,
+# ── sequential worker ─────────────────────────────────────────────────────────
+
+def sequential_worker(
+    api_keys: list,
     supabase_client: Client,
     batch_q: queue.Queue,        # shared work queue
     done_event: threading.Event, # set when all work is done
     progress: dict,              # shared progress dict {lock, done, total}
 ):
-    last_call = 0.0  # tracks when this key last made a call
+    key_idx = 0
+    active_keys = list(api_keys)
 
     while not done_event.is_set():
-        # ── rate pacing: ensure MIN_KEY_INTERVAL since last call ──────────────
-        now = time.monotonic()
-        wait = MIN_KEY_INTERVAL - (now - last_call)
-        if wait > 0:
-            time.sleep(wait)
+        if not active_keys:
+            print("ERROR: All API keys have been banned or retired!", flush=True)
+            done_event.set()
+            break
 
         # ── pull next batch ────────────────────────────────────────────────────
         try:
             sidx, batch = batch_q.get(timeout=2)
+            batch_q.task_done()  # Balance get immediately
         except queue.Empty:
             continue  # queue empty, spin and check done_event
 
         texts = [doc["content"] for doc in batch]
 
-        # ── embed with retries ─────────────────────────────────────────────────
+        # ── try embedding with key rotation on failure ─────────────────────────
         embeddings = None
-        for attempt in range(1, NETWORK_RETRIES + 1):
-            try:
-                last_call = time.monotonic()
-                embeddings = embed_batch(api_key, texts)
+        attempts_this_batch = 0
+        max_batch_attempts = len(active_keys) * 2  # try all keys twice before giving up
+
+        while attempts_this_batch < max_batch_attempts:
+            if not active_keys:
                 break
+            key_idx = key_idx % len(active_keys)
+            api_key = active_keys[key_idx]
+
+            try:
+                embeddings = embed_batch(api_key, texts)
+                break  # success!
             except RuntimeError as e:
                 msg = str(e)
                 if "HTTP_403" in msg or "PERMISSION_DENIED" in msg or "Permission denied" in msg:
-                    print(f"  [Key {key_label}] PERMISSION_DENIED - retiring key permanently.", flush=True)
-                    batch_q.put((sidx, batch))   # give batch back
-                    return                        # exit thread
-                if "HTTP_429" in msg or "quota" in msg.lower() or "daily" in msg.lower() or "limit: 1000" in msg:
-                    print(f"  [Key {key_label}] Rate limit hit - sleeping {RATE_COOLDOWN}s then rejoining...", flush=True)
-                    batch_q.put((sidx, batch))   # give batch back
-                    time.sleep(RATE_COOLDOWN)    # cooldown
-                    last_call = 0.0              # reset pacing timer
-                    break                        # restart outer loop (rejoin)
-                # Transient network error
-                if attempt < NETWORK_RETRIES:
-                    print(f"  [Key {key_label}] Network error (attempt {attempt}/{NETWORK_RETRIES}): {msg[:70]} - retrying in {NETWORK_RETRY_WAIT}s", flush=True)
-                    time.sleep(NETWORK_RETRY_WAIT)
+                    print(f"  [Key {key_idx+1}] PERMISSION_DENIED - retiring key permanently.", flush=True)
+                    active_keys.pop(key_idx)
+                    # Don't increment key_idx since pop shifts the rest
+                    continue
+                elif "HTTP_429" in msg or "quota" in msg.lower() or "daily" in msg.lower() or "limit: 1000" in msg:
+                    print(f"  [Key {key_idx+1}] Rate limit (429) hit - rotating key immediately...", flush=True)
+                    key_idx += 1
+                    attempts_this_batch += 1
+                    time.sleep(1.0)  # brief sleep before trying next key
+                    continue
                 else:
-                    print(f"  [Key {key_label}] Giving up on batch after {NETWORK_RETRIES} retries.", flush=True)
-                    batch_q.put((sidx, batch))   # give batch back
-                    batch_q.task_done()
-                    break
+                    # Other runtime error (network error etc)
+                    print(f"  [Key {key_idx+1}] Embedding error: {msg[:100]} - retrying with next key...", flush=True)
+                    key_idx += 1
+                    attempts_this_batch += 1
+                    time.sleep(2.0)
+                    continue
             except Exception as e:
-                msg = str(e)
-                if attempt < NETWORK_RETRIES:
-                    print(f"  [Key {key_label}] Unexpected error (attempt {attempt}): {msg[:70]}", flush=True)
-                    time.sleep(NETWORK_RETRY_WAIT)
-                else:
-                    print(f"  [Key {key_label}] Batch failed after {NETWORK_RETRIES} retries.", flush=True)
-                    batch_q.put((sidx, batch))
-                    batch_q.task_done()
-                    break
-        else:
-            # All retries failed from the for-else (no break on success)
-            continue
+                print(f"  [Key {key_idx+1}] Unexpected error: {str(e)[:100]} - rotating key...", flush=True)
+                key_idx += 1
+                attempts_this_batch += 1
+                time.sleep(2.0)
+                continue
 
+        # If we failed to embed this batch after all keys, put it back and sleep
         if embeddings is None:
-            batch_q.task_done()
-            continue   # batch was re-queued above
+            print("  [WARNING] Failed to embed batch after trying all keys. Re-queuing and sleeping 15s...", flush=True)
+            batch_q.put((sidx, batch))
+            time.sleep(15.0)
+            continue
 
         # ── build rows ─────────────────────────────────────────────────────────
         if len(embeddings) != len(batch):
-            print(f"  [Key {key_label}] Embedding count mismatch - re-queuing batch.", flush=True)
+            print("  [WARNING] Embedding count mismatch - re-queuing batch.", flush=True)
             batch_q.put((sidx, batch))
-            batch_q.task_done()
             continue
 
         rows = [
@@ -171,19 +181,19 @@ def key_worker(
             except Exception as e:
                 msg = str(e)
                 if attempt < NETWORK_RETRIES:
-                    print(f"  [Key {key_label}] DB insert error (attempt {attempt}): {msg[:70]} - retrying", flush=True)
+                    print(f"  DB insert error (attempt {attempt}): {msg[:70]} - retrying", flush=True)
                     time.sleep(NETWORK_RETRY_WAIT)
                 else:
-                    print(f"  [Key {key_label}] DB insert failed after {NETWORK_RETRIES} attempts - re-queuing.", flush=True)
+                    print(f"  DB insert failed after {NETWORK_RETRIES} attempts - re-queuing.", flush=True)
                     batch_q.put((sidx, batch))
 
         if inserted:
             with progress["lock"]:
                 progress["done"] += len(batch)
                 pct = min(100.0, progress["done"] / progress["total"] * 100)
-                print(f"  Progress: {pct:.1f}% ({progress['done']}/{progress['total']}) [Key {key_label}]", flush=True)
-
-        batch_q.task_done()
+                print(f"  Progress: {pct:.1f}% ({progress['done']}/{progress['total']}) [Key {key_idx+1}]", flush=True)
+            key_idx += 1
+            time.sleep(1.5)  # safe pacing delay between requests
 
 
 # ── main upload function ───────────────────────────────────────────────────────
@@ -271,24 +281,20 @@ def upload_local_chunks(json_file: str):
         "total": total_chunks,
     }
 
-    # ── launch one worker thread per key ──────────────────────────────────────
+    # ── launch single sequential worker thread ─────────────────────────────────
     threads = []
-    for label, key in enumerate(api_keys, start=1):
-        t = threading.Thread(
-            target=key_worker,
-            args=(label, key, supabase_client, batch_q, done_event, progress),
-            daemon=True,
-        )
-        threads.append(t)
-        t.start()
-        # Stagger starts so keys don't all fire at t=0
-        time.sleep(random.uniform(0.3, 0.8))
+    t = threading.Thread(
+        target=sequential_worker,
+        args=(api_keys, supabase_client, batch_q, done_event, progress),
+        daemon=True,
+    )
+    threads.append(t)
+    t.start()
 
     # ── wait for all batches to be processed ──────────────────────────────────
     batch_q.join()
-    done_event.set()    # signal workers to exit
-    for t in threads:
-        t.join(timeout=5)
+    done_event.set()    # signal worker to exit
+    t.join(timeout=5)
 
     print(f"\n[DONE] All chunks from '{json_file}' uploaded successfully!")
 
