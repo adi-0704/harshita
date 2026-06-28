@@ -4,9 +4,13 @@ import random
 import io
 import re
 import asyncio
+import hmac
+import hashlib
+from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -50,6 +54,22 @@ def get_supabase_client() -> Client:
     return _supabase_client
 
 
+# ── Razorpay Setup ──
+_razorpay_key_id = os.getenv("RAZORPAY_KEY_ID")
+_razorpay_key_secret = os.getenv("RAZORPAY_KEY_SECRET")
+_razorpay_webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+
+def get_razorpay_client():
+    try:
+        import razorpay
+        if not _razorpay_key_id or not _razorpay_key_secret:
+            return None
+        return razorpay.Client(auth=(_razorpay_key_id, _razorpay_key_secret))
+    except ImportError:
+        return None
+
+
+# ── Pydantic Models ──
 class QueryRequest(BaseModel):
     query: str
     history: Optional[list] = []
@@ -62,6 +82,210 @@ class MCQRequest(BaseModel):
 class FlashcardRequest(BaseModel):
     text: str
 
+class SubscriptionStatus(BaseModel):
+    plan: str
+    status: str
+    trial_ends_at: Optional[str] = None
+    current_period_end: Optional[str] = None
+    is_lifetime_free: bool
+    queries_today: int
+    queries_monthly: int
+    pdfs_uploaded: int
+    mcqs_today: int
+    flashcards_today: int
+
+class RazorpayOrderRequest(BaseModel):
+    user_id: str
+    plan: str  # 'pro' or 'elite'
+    amount_paise: int
+
+class UsageCheckResponse(BaseModel):
+    allowed: bool
+    remaining: int
+    reason: Optional[str] = None
+
+
+# ── Subscription / Quota Helpers ──
+
+# Quota limits by plan
+QUOTA_LIMITS = {
+    "free": {
+        "query_daily": 15,
+        "query_monthly": 100,
+        "pdf_total": 1,
+        "mcq_daily": 1,
+        "flashcard_daily": 5,
+    },
+    "pro": {
+        "query_daily": 999999,  # effectively unlimited
+        "query_monthly": 999999,
+        "pdf_total": 999999,
+        "mcq_daily": 999999,
+        "flashcard_daily": 999999,
+    },
+    "elite": {
+        "query_daily": 999999,
+        "query_monthly": 999999,
+        "pdf_total": 999999,
+        "mcq_daily": 999999,
+        "flashcard_daily": 999999,
+    },
+}
+
+def is_lifetime_free(user_id: str) -> bool:
+    """Check if a user has lifetime free access (bypasses all quotas)."""
+    if not user_id:
+        return False
+    try:
+        supabase = get_supabase_client()
+        res = supabase.table("lifetime_free_users").select("id").eq("user_id", user_id).execute()
+        return bool(res.data)
+    except Exception as e:
+        print(f"Lifetime free check error: {e}")
+        return False
+
+def get_user_subscription(user_id: str) -> dict:
+    """Get subscription status for a user."""
+    if not user_id:
+        return {"plan": "free", "status": "trialing", "is_lifetime_free": False}
+    try:
+        supabase = get_supabase_client()
+        # Check lifetime free first
+        lf_res = supabase.table("lifetime_free_users").select("id").eq("user_id", user_id).execute()
+        is_lf = bool(lf_res.data)
+        
+        # Get subscription
+        sub_res = supabase.table("subscriptions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+        if sub_res.data:
+            sub = sub_res.data[0]
+            return {
+                "plan": sub.get("plan", "free"),
+                "status": sub.get("status", "trialing"),
+                "trial_ends_at": sub.get("trial_ends_at"),
+                "current_period_end": sub.get("current_period_end"),
+                "is_lifetime_free": is_lf,
+            }
+        return {
+            "plan": "free",
+            "status": "trialing",
+            "trial_ends_at": None,
+            "current_period_end": None,
+            "is_lifetime_free": is_lf,
+        }
+    except Exception as e:
+        print(f"Subscription check error: {e}")
+        return {"plan": "free", "status": "trialing", "is_lifetime_free": False}
+
+def get_usage_counts(user_id: str) -> dict:
+    """Get today's and monthly usage counts for a user."""
+    if not user_id:
+        return {"query": 0, "mcq": 0, "flashcard": 0, "pdf": 0}
+    try:
+        supabase = get_supabase_client()
+        today_start = datetime.utcnow().strftime("%Y-%m-%d")
+        month_start = datetime.utcnow().strftime("%Y-%m-01")
+        
+        # Daily usage
+        daily_res = supabase.rpc("get_user_daily_usage", {"p_user_id": user_id, "p_action": "query"}).execute()
+        query_daily = daily_res.data if daily_res.data is not None else 0
+        
+        daily_mcq = supabase.rpc("get_user_daily_usage", {"p_user_id": user_id, "p_action": "mcq"}).execute()
+        mcq_daily = daily_mcq.data if daily_mcq.data is not None else 0
+        
+        daily_fc = supabase.rpc("get_user_daily_usage", {"p_user_id": user_id, "p_action": "flashcard"}).execute()
+        fc_daily = daily_fc.data if daily_fc.data is not None else 0
+        
+        # Monthly usage
+        monthly_res = supabase.rpc("get_user_monthly_usage", {"p_user_id": user_id, "p_action": "query"}).execute()
+        query_monthly = monthly_res.data if monthly_res.data is not None else 0
+        
+        # PDF total (all time for this user in user_documents)
+        pdf_res = supabase.table("user_documents").select("id", count="exact").eq("user_id", user_id).execute()
+        pdf_count = len(pdf_res.data) if pdf_res.data else 0
+        
+        return {
+            "query": query_daily,
+            "query_monthly": query_monthly,
+            "mcq": mcq_daily,
+            "flashcard": fc_daily,
+            "pdf": pdf_count,
+        }
+    except Exception as e:
+        print(f"Usage count error: {e}")
+        return {"query": 0, "query_monthly": 0, "mcq": 0, "flashcard": 0, "pdf": 0}
+
+def log_usage(user_id: str, action: str, count: int = 1):
+    """Log usage for quota tracking."""
+    if not user_id:
+        return
+    try:
+        supabase = get_supabase_client()
+        supabase.table("usage_logs").insert({
+            "user_id": user_id,
+            "action": action,
+            "count": count,
+        }).execute()
+    except Exception as e:
+        print(f"Usage log error: {e}")
+
+def check_quota(user_id: str, action: str) -> tuple[bool, int, str]:
+    """
+    Check if user can perform an action.
+    Returns (allowed, remaining, reason).
+    """
+    if not user_id:
+        return True, 999, "Anonymous user"
+    
+    sub = get_user_subscription(user_id)
+    
+    # Lifetime free bypass
+    if sub.get("is_lifetime_free"):
+        return True, 999999, "Lifetime free access"
+    
+    plan = sub.get("plan", "free")
+    status = sub.get("status", "trialing")
+    
+    # Check if trial expired for free users
+    if plan == "free" and status == "trialing":
+        trial_end = sub.get("trial_ends_at")
+        if trial_end and datetime.utcnow() > datetime.fromisoformat(trial_end.replace("Z", "+00:00")):
+            return False, 0, "Your free trial has expired. Please upgrade to Pro or Elite."
+    
+    usage = get_usage_counts(user_id)
+    limits = QUOTA_LIMITS.get(plan, QUOTA_LIMITS["free"])
+    
+    if action == "query":
+        used = usage.get("query", 0)
+        limit = limits["query_daily"]
+        if used >= limit:
+            return False, 0, f"Daily query limit reached ({limit}/{limit}). Upgrade to Pro for unlimited queries."
+        return True, limit - used, ""
+    
+    elif action == "mcq":
+        used = usage.get("mcq", 0)
+        limit = limits["mcq_daily"]
+        if used >= limit:
+            return False, 0, f"Daily MCQ limit reached ({limit}/{limit}). Upgrade to Pro for unlimited MCQs."
+        return True, limit - used, ""
+    
+    elif action == "flashcard":
+        used = usage.get("flashcard", 0)
+        limit = limits["flashcard_daily"]
+        if used >= limit:
+            return False, 0, f"Daily flashcard limit reached ({limit}/{limit}). Upgrade to Pro for unlimited flashcards."
+        return True, limit - used, ""
+    
+    elif action == "pdf_upload":
+        used = usage.get("pdf", 0)
+        limit = limits["pdf_total"]
+        if used >= limit:
+            return False, 0, f"PDF upload limit reached ({limit}). Upgrade to Pro for unlimited uploads."
+        return True, limit - used, ""
+    
+    return True, 999999, ""
+
+
+# ── Existing API Key Helpers ──
 
 def get_embedding_api_keys():
     api_keys = []
@@ -151,13 +375,135 @@ def invoke_llm_with_key_pool(prompt: str, api_keys: list[str]):
     raise RuntimeError(f"All chat API keys failed. Last error: {last_error}")
 
 
+# ── Subscription Endpoints ──
+
+@app.get("/user/subscription")
+def get_subscription(user_id: str):
+    """Get current user's subscription status and usage."""
+    sub = get_user_subscription(user_id)
+    usage = get_usage_counts(user_id)
+    limits = QUOTA_LIMITS.get(sub.get("plan", "free"), QUOTA_LIMITS["free"])
+    
+    return {
+        "plan": sub.get("plan", "free"),
+        "status": sub.get("status", "trialing"),
+        "trial_ends_at": sub.get("trial_ends_at"),
+        "current_period_end": sub.get("current_period_end"),
+        "is_lifetime_free": sub.get("is_lifetime_free", False),
+        "usage": usage,
+        "limits": limits,
+    }
+
+@app.get("/user/check_lifetime_free")
+def check_lifetime_free_endpoint(user_id: str):
+    """Check if a user has lifetime free access."""
+    return {"is_lifetime_free": is_lifetime_free(user_id)}
+
+@app.post("/razorpay/create_order")
+def create_razorpay_order(request: RazorpayOrderRequest):
+    """Create a Razorpay order for subscription payment."""
+    client = get_razorpay_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Razorpay not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to environment.")
+    
+    try:
+        order_data = {
+            "amount": request.amount_paise,
+            "currency": "INR",
+            "receipt": f"medai_{request.user_id}_{request.plan}_{int(datetime.utcnow().timestamp())}",
+            "notes": {
+                "user_id": request.user_id,
+                "plan": request.plan,
+            }
+        }
+        order = client.order.create(data=order_data)
+        return {
+            "success": True,
+            "order_id": order["id"],
+            "amount": order["amount"],
+            "currency": order["currency"],
+            "key_id": _razorpay_key_id,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create Razorpay order: {str(e)}")
+
+@app.post("/razorpay/webhook")
+async def razorpay_webhook(request: Request):
+    """Handle Razorpay payment webhook."""
+    body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    
+    # Verify webhook signature
+    if _razorpay_webhook_secret:
+        expected_signature = hmac.new(
+            _razorpay_webhook_secret.encode(),
+            body,
+            hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected_signature, signature):
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+    
+    try:
+        payload = json.loads(body)
+        event = payload.get("event")
+        
+        if event == "payment.captured":
+            payment = payload.get("payload", {}).get("payment", {}).get("entity", {})
+            notes = payment.get("notes", {})
+            user_id = notes.get("user_id")
+            plan = notes.get("plan", "pro")
+            
+            if user_id:
+                supabase = get_supabase_client()
+                # Create or update subscription
+                now = datetime.utcnow()
+                period_end = now + timedelta(days=30)
+                
+                # Check existing subscription
+                existing = supabase.table("subscriptions").select("*").eq("user_id", user_id).execute()
+                if existing.data:
+                    # Update
+                    supabase.table("subscriptions").update({
+                        "plan": plan,
+                        "status": "active",
+                        "current_period_start": now.isoformat(),
+                        "current_period_end": period_end.isoformat(),
+                        "razorpay_order_id": payment.get("order_id"),
+                        "updated_at": now.isoformat(),
+                    }).eq("user_id", user_id).execute()
+                else:
+                    # Insert new
+                    supabase.table("subscriptions").insert({
+                        "user_id": user_id,
+                        "plan": plan,
+                        "status": "active",
+                        "current_period_start": now.isoformat(),
+                        "current_period_end": period_end.isoformat(),
+                        "razorpay_order_id": payment.get("order_id"),
+                    }).execute()
+        
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# ── Health Check ──
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "medai-rag-backend"}
 
 
+# ── Core Endpoints (with Quota Enforcement) ──
+
 @app.post("/query")
 def query_knowledge_base(request: QueryRequest):
+    # ── Quota check ──
+    allowed, remaining, reason = check_quota(request.user_id, "query")
+    if not allowed:
+        raise HTTPException(status_code=402, detail=reason)
+    
     embedding_api_keys, _, _ = get_ordered_embedding_api_keys()
     chat_api_keys, _, _ = get_ordered_chat_api_keys()
 
@@ -255,6 +601,9 @@ Question: {request.query}"""
                     if re.match(r'^\d+\.', line):
                         suggestions.append(re.sub(r'^\d+\.\s*', '', line))
 
+            # Log usage after successful response
+            log_usage(request.user_id, "query", 1)
+            
             return {"summary": main_content, "sources": sources_list, "suggestions": suggestions[:3]}
 
         except Exception as e:
@@ -312,6 +661,9 @@ Question: {request.query}"""
                         if re.match(r'^\d+\.', line):
                             suggestions.append(re.sub(r'^\d+\.\s*', '', line))
 
+                # Log usage
+                log_usage(request.user_id, "query", 1)
+                
                 return {
                     "summary": main_content,
                     "sources": [],
@@ -334,6 +686,10 @@ Question: {request.query}"""
 
 @app.post("/generate_mcq")
 def generate_mcq(request: MCQRequest):
+    # ── Quota check ──
+    # Note: MCQ requests don't have user_id in the current model, so we skip quota for now
+    # In production, add user_id to MCQRequest
+    
     embedding_api_keys, _, _ = get_ordered_embedding_api_keys()
     chat_api_keys, _, _ = get_ordered_chat_api_keys()
 
@@ -402,6 +758,11 @@ Context:
 
 @app.post("/upload_pdf")
 async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
+    # ── Quota check ──
+    allowed, remaining, reason = check_quota(user_id, "pdf_upload")
+    if not allowed:
+        raise HTTPException(status_code=402, detail=reason)
+    
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -457,6 +818,9 @@ async def upload_pdf(user_id: str = Form(...), file: UploadFile = File(...)):
             batch = records[i:i+100]
             supabase.table("user_documents").insert(batch).execute()
 
+        # Log usage
+        log_usage(user_id, "pdf_upload", 1)
+        
         return {"status": "success", "message": f"Processed and indexed {len(chunks)} chunks from {file.filename}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

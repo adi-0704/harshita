@@ -12,6 +12,7 @@ import QuizModal from './components/QuizModal'
 import SavedNotesPanel from './components/SavedNotesPanel'
 import ToastContainer from './components/ToastContainer'
 import { useToast } from './hooks/useToast'
+import { useSubscription } from './hooks/useSubscription'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const Flashcards = lazy(() => import('./components/Flashcards'))
@@ -66,6 +67,10 @@ function App() {
   // Toast
   const { toasts, addToast, removeToast } = useToast();
 
+  // Subscription
+  const { subscription, isLifetimeFree, plan, status, usage, limits, canUseAction, initRazorpayCheckout, refresh: refreshSubscription } = useSubscription(session);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -104,6 +109,17 @@ function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  // Load Razorpay script
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.Razorpay) {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      document.body.appendChild(script);
+      return () => { document.body.removeChild(script); };
+    }
+  }, []);
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -176,6 +192,16 @@ function App() {
   const handlePdfUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // Quota check
+    const check = canUseAction('pdf_upload');
+    if (!check.allowed) {
+      addToast(check.reason, 'error', 5000);
+      setShowUpgradeModal(true);
+      e.target.value = null;
+      return;
+    }
+    
     setUploadingPdf(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -189,6 +215,7 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         addToast(data.message || 'PDF uploaded successfully', 'success');
+        refreshSubscription();
       } else {
         addToast(data.detail || 'Upload failed', 'error');
       }
@@ -230,6 +257,15 @@ function App() {
 
   const generateFlashcards = async (content) => {
     if (!session) return;
+    
+    // Quota check
+    const check = canUseAction('flashcard');
+    if (!check.allowed) {
+      addToast(check.reason, 'error', 5000);
+      setShowUpgradeModal(true);
+      return;
+    }
+    
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/generate_flashcards`, {
@@ -249,6 +285,7 @@ function App() {
         }
         addToast(`Successfully generated and saved ${data.flashcards.length} flashcards!`, 'success');
         setShowFlashcards(true);
+        refreshSubscription();
       } else {
         addToast('Failed to generate flashcards.', 'error');
       }
@@ -262,6 +299,14 @@ function App() {
   const handleQuery = async (overrideQuery = null) => {
     const q = overrideQuery || query;
     if (!q.trim()) return;
+
+    // Quota check
+    const check = canUseAction('query');
+    if (!check.allowed) {
+      addToast(check.reason, 'error', 5000);
+      setShowUpgradeModal(true);
+      return;
+    }
 
     const userMsg = { id: Date.now().toString(), role: 'user', content: q }
     const currentHistory = [...messages]
@@ -345,6 +390,9 @@ function App() {
           throw new Error(`Could not save AI response: ${aiSaveError.message}`);
         }
       }
+      
+      // Refresh subscription after successful query
+      refreshSubscription();
 
     } catch (err) {
       setError(err.message);
@@ -901,6 +949,14 @@ function App() {
   // QUIZ
   // ───────────────────────────────────────────────────────────────
   const startQuiz = async (aiMsgId, aiMsgContent) => {
+    // Quota check
+    const check = canUseAction('mcq');
+    if (!check.allowed) {
+      addToast(check.reason, 'error', 5000);
+      setShowUpgradeModal(true);
+      return;
+    }
+
     setMcqLoading(true)
     setMcqModal(null)
     setCurrentQuestionIndex(0)
@@ -926,6 +982,7 @@ function App() {
         throw new Error("Invalid format received from server.")
       }
       setMcqModal(questions)
+      refreshSubscription();
     } catch (err) {
       addToast("Failed to generate MCQ: " + err.message, 'error');
     } finally {
@@ -991,6 +1048,61 @@ function App() {
 
       {/* Main Chat Container */}
       <div className="flex-1 flex flex-col h-screen w-full overflow-hidden bg-white dark:bg-black">
+
+        {/* Subscription Banner */}
+        {subscription && !isLifetimeFree && plan === 'free' && (
+          <div className="shrink-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 text-center text-sm font-medium">
+            <span className="hidden sm:inline">🎓 Free trial active — </span>
+            <span>{usage.query || 0}/{limits.query_daily || 15} queries used today.</span>
+            <button
+              onClick={() => setShowUpgradeModal(true)}
+              className="ml-3 underline hover:text-white/80 transition-colors"
+            >
+              Upgrade to Pro →
+            </button>
+          </div>
+        )}
+        {isLifetimeFree && (
+          <div className="shrink-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 text-center text-sm font-medium">
+            💎 Lifetime Free Access — Enjoy unlimited everything, always.
+          </div>
+        )}
+
+        {/* Upgrade Modal */}
+        {showUpgradeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}></div>
+            <div className="relative w-full max-w-md bg-white dark:bg-[#111] rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl p-8 text-center">
+              <button onClick={() => setShowUpgradeModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-900 dark:hover:text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mx-auto mb-4 text-white text-xl">🚀</div>
+              <h3 className="text-2xl font-bold text-black dark:text-white mb-2">Upgrade to Pro</h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-6">You&apos;ve reached your free limit. Unlock unlimited queries, PDFs, flashcards, and MCQs.</p>
+              <div className="space-y-3 mb-6 text-left">
+                <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                  Unlimited AI queries
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                  Unlimited PDF uploads
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path></svg>
+                  Unlimited flashcards & MCQs
+                </div>
+              </div>
+              <button
+                onClick={() => { initRazorpayCheckout('pro', 49900); setShowUpgradeModal(false); }}
+                className="w-full bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200 py-3 rounded-full font-semibold text-lg transition-colors"
+              >
+                Upgrade Now — ₹499/month
+              </button>
+              <p className="text-xs text-gray-400 mt-3">or ₹4,799/year (save ₹1,189)</p>
+            </div>
+          </div>
+        )}
 
         {/* Header bar */}
         <header className="shrink-0 w-full bg-white/90 dark:bg-black/80 border-b border-gray-200 dark:border-white/10 px-4 py-3 flex justify-between items-center transition-all duration-300">
